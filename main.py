@@ -69,16 +69,16 @@ def send_email(signal):
         print(f"Failed to send email: {e}")
 
 def run_agent():
-    df = fetch_ohlcv()
-    df = add_indicators(df)
-    signal = generate_trade_idea(df)
-    if signal:
-        print("\n--- Trade Signal ---")
-        for key, value in signal.items():
-            print(f"{key}: {value}")
-        send_email(signal)
-    else:
-        print("No valid trade signal today.")
+test_signal = {
+    "symbol": "ETH/USDT",
+    "direction": "BUY",
+    "entry": 3000,
+    "stop_loss": 2950,
+    "take_profit": 3150,
+    "risk_reward": "1:3",
+    "reason": "Testing email delivery from GitHub Actions"
+}
+send_email(test_signal)
 
 # Entry point for GitHub Actions
 print("[Agent Started] Running ETH trade signal now...")

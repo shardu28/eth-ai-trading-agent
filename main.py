@@ -69,15 +69,15 @@ def send_email(signal):
         print(f"Failed to send email: {e}")
 
 def run_agent():
-test_signal = {
-    "symbol": "ETH/USDT",
-    "direction": "BUY",
-    "entry": 3000,
-    "stop_loss": 2950,
-    "take_profit": 3150,
-    "risk_reward": "1:3",
-    "reason": "Testing email delivery from GitHub Actions"
-}
+    test_signal = {
+        "symbol": "ETH/USDT",
+        "direction": "BUY",
+        "entry": 3000,
+        "stop_loss": 2950,
+        "take_profit": 3150,
+        "risk_reward": "1:3",
+        "reason": "Testing email delivery from GitHub Actions"
+    }
 send_email(test_signal)
 
 # Entry point for GitHub Actions

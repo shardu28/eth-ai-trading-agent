@@ -1,20 +1,20 @@
 Python 3.9.0 (tags/v3.9.0:9cf6752, Oct  5 2020, 15:34:40) [MSC v.1927 64 bit (AMD64)] on win32
 Type "help", "copyright", "credits" or "license()" for more information.
 >>> from ta.trend import EMAIndicator
+from ta.trend import EMAIndicator
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
 import ccxt
 import pandas as pd
-import schedule
-import time
 import smtplib
+import os
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# Email Configuration (Replace with your credentials)
-EMAIL_ADDRESS = 'shardulkshirsagar22@gmail.com'
-EMAIL_PASSWORD = 'eobs szql wkfj fazq'
-RECIPIENT_EMAIL = 'shardulkshirsagar22@gmail.com'
+# Email Configuration (Read securely from GitHub Actions secrets)
+EMAIL_ADDRESS = os.getenv('EMAIL_ADDRESS')
+EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
+RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')
 
 # Initialize Exchange
 exchange = ccxt.binance()
@@ -60,7 +60,6 @@ def send_email(signal):
     msg['From'] = EMAIL_ADDRESS
     msg['To'] = RECIPIENT_EMAIL
     msg['Subject'] = subject
-
     msg.attach(MIMEText(body, 'plain'))
 
     try:
@@ -83,10 +82,6 @@ def run_agent():
     else:
         print("No valid trade signal today.")
 
-# Schedule to run every day at 9:00 UTC
-schedule.every().day.at("09:00").do(run_agent)
-
-print("[Agent Initialized] Running ETH trade signal daily at 09:00 UTC...")
-while True:
-    schedule.run_pending()
-    time.sleep(60)
+# Entry point for GitHub Actions
+print("[Agent Started] Running ETH trade signal now...")
+run_agent()

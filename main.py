@@ -15,7 +15,7 @@ EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
 RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')
 
 # Initialize Exchange
-exchange = ccxt.binance()
+exchange = ccxt.kucoin()
 symbol = 'ETH/USDT'
 
 def fetch_ohlcv():

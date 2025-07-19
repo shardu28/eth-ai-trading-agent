@@ -1,5 +1,4 @@
-from ta.trend import EMAIndicator
-from ta.trend import EMAIndicator
+from ta.trend import EMAIndicator, ADXIndicator
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
 import ccxt
@@ -28,24 +27,69 @@ def add_indicators(df):
     df['ema_50'] = EMAIndicator(close=df['close'], window=50).ema_indicator()
     df['rsi'] = RSIIndicator(close=df['close'], window=14).rsi()
     df['atr'] = AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14).average_true_range()
+    df['volume_sma_20'] = df['volume'].rolling(window=20).mean()
+    adx = ADXIndicator(high=df['high'], low=df['low'], close=df['close'], window=14)
+    df['adx'] = adx.adx()
     return df
+
+def detect_rsi_divergence(df):
+    # Detect basic bullish or bearish RSI divergence over last 5 candles
+    lows = df['low'].iloc[-5:]
+    highs = df['high'].iloc[-5:]
+    rsi = df['rsi'].iloc[-5:]
+
+    # Bullish Divergence
+    if lows.iloc[-1] < lows.iloc[-2] and rsi.iloc[-1] > rsi.iloc[-2]:
+        return "Bullish"
+
+    # Bearish Divergence
+    if highs.iloc[-1] > highs.iloc[-2] and rsi.iloc[-1] < rsi.iloc[-2]:
+        return "Bearish"
+
+    return None
 
 def generate_trade_idea(df):
     latest = df.iloc[-1]
     signal = None
 
-    if latest['close'] > latest['ema_50'] and latest['rsi'] > 55:
-        entry = round(latest['close'], 2)
-        sl = round(entry - latest['atr'], 2)
-        tp = round(entry + 3 * (entry - sl), 2)
+    # Filters
+    volume_ok = latest['volume'] > latest['volume_sma_20']
+    adx_ok = latest['adx'] > 20
+    divergence = detect_rsi_divergence(df)
+
+    if not volume_ok or not adx_ok:
+        return None  # Skip trade if filters fail
+
+    rrr = 1.5  # Risk-to-reward ratio
+    entry = round(latest['close'], 2)
+    atr = latest['atr']
+
+    # BUY Signal
+    if latest['close'] > latest['ema_50'] and latest['rsi'] > 55 and divergence == "Bullish":
+        sl = round(entry - atr, 2)
+        tp = round(entry + rrr * (entry - sl), 2)
         signal = {
             "symbol": symbol,
             "direction": "BUY",
             "entry": entry,
             "stop_loss": sl,
             "take_profit": tp,
-            "risk_reward": "1:3",
-            "reason": "Close > EMA50, RSI > 55, ATR-based RRR"
+            "risk_reward": "1:1.5",
+            "reason": "Volume > avg, ADX > 20, Bullish RSI divergence, Close > EMA50, RSI > 55"
+        }
+
+    # SELL Signal
+    elif latest['close'] < latest['ema_50'] and latest['rsi'] < 45 and divergence == "Bearish":
+        sl = round(entry + atr, 2)
+        tp = round(entry - rrr * (sl - entry), 2)
+        signal = {
+            "symbol": symbol,
+            "direction": "SELL",
+            "entry": entry,
+            "stop_loss": sl,
+            "take_profit": tp,
+            "risk_reward": "1:1.5",
+            "reason": "Volume > avg, ADX > 20, Bearish RSI divergence, Close < EMA50, RSI < 45"
         }
 
     return signal
@@ -80,6 +124,6 @@ def run_agent():
     else:
         print("No valid trade signal today.")
 
-# Entry point for GitHub Actions
+# Entry point
 print("[Agent Started] Running ETH trade signal now...")
 run_agent()

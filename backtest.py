@@ -1,8 +1,10 @@
 # backtest.py
 import csv
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 import matplotlib.pyplot as plt
+import pandas as pd
+import ta
 
 from delta_client import DeltaClient
 from indicators import ema, vwma, roc
@@ -12,6 +14,7 @@ from trade_manager import TradeManager
 from config import PRODUCT_SYMBOL
 
 OUTPUT_CSV = "backtest_results.csv"
+
 
 def fetch_chunked_candles(client, symbol, resolution, start, end, chunk_days=90):
     """Fetch historical candles in chunks to bypass API limits."""
@@ -32,6 +35,7 @@ def fetch_chunked_candles(client, symbol, resolution, start, end, chunk_days=90)
     all_candles.sort(key=lambda r: r["time"])
     return all_candles
 
+
 def fetch_chunked_funding(client, symbol, resolution, start, end, chunk_days=90):
     """Fetch funding history in chunks (same pattern as candles)."""
     all_rates = []
@@ -50,6 +54,7 @@ def fetch_chunked_funding(client, symbol, resolution, start, end, chunk_days=90)
         time.sleep(0.2)
     return all_rates
 
+
 def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
     client = DeltaClient()
     tm = TradeManager()
@@ -62,14 +67,40 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
     candles = fetch_chunked_candles(client, PRODUCT_SYMBOL, "1h", start, end)
     frates = fetch_chunked_funding(client, PRODUCT_SYMBOL, "1h", start, end)
 
+    # Convert to DataFrame for TA indicators
+    df = pd.DataFrame(candles)
+    df["time"] = pd.to_datetime(df["time"], unit="s")
+    df["open"] = df["open"].astype(float)
+    df["high"] = df["high"].astype(float)
+    df["low"] = df["low"].astype(float)
+    df["close"] = df["close"].astype(float)
+    df["volume"] = df["volume"].astype(float)
+
+    # Add ATR(14) and ADX(14)
+    df["atr"] = ta.volatility.AverageTrueRange(
+        high=df["high"], low=df["low"], close=df["close"], window=14
+    ).average_true_range()
+    df["adx"] = ta.trend.ADXIndicator(
+        high=df["high"], low=df["low"], close=df["close"], window=14
+    ).adx()
+
+    # Rolling volume average (20 bars)
+    df["vol_ma"] = df["volume"].rolling(20).mean()
+
     equity = start_equity
     trades = []
-    closes, vols, equity_curve, times = [], [], [], []
+    equity_curve, times = [], []
 
-    for i, c in enumerate(candles):
-        ts = c["time"]
-        close = float(c["close"])
-        vol = float(c.get("volume", 0))
+    closes, vols = [], []
+
+    for i, row in df.iterrows():
+        ts = row["time"]
+        close = row["close"]
+        vol = row["volume"]
+        atr = row["atr"]
+        adx = row["adx"]
+        vol_ma = row["vol_ma"]
+
         closes.append(close)
         vols.append(vol)
 
@@ -82,12 +113,23 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
             pnl = (exit_price - entry) if side == "buy" else (entry - exit_price)
             pnl_usd = (pnl / entry) * risk_per_trade
             equity += pnl_usd
-            trades.append([datetime.fromtimestamp(ts), side, entry, exit_price, hit["result"], pnl_usd, equity])
-
+            trades.append([ts, side, entry, exit_price, hit["result"], pnl_usd, equity])
 
         if i < 30 or not tm.can_issue():
             equity_curve.append(equity)
-            times.append(datetime.fromtimestamp(ts))
+            times.append(ts)
+            continue
+
+        # volume filter
+        if pd.isna(vol_ma) or vol <= vol_ma:
+            equity_curve.append(equity)
+            times.append(ts)
+            continue
+
+        # ADX filter
+        if pd.isna(adx) or adx <= 20:
+            equity_curve.append(equity)
+            times.append(ts)
             continue
 
         # indicators
@@ -112,11 +154,15 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
             if ind_sig and ind_sig == dirn and match_rate >= 0.5:
                 side = "buy" if ind_sig == 1 else "sell"
                 entry = close
-                tp, sl = tm.open(side, entry)
-                trades.append([datetime.fromtimestamp(ts), side, entry, None, "open", 0.0, equity])
+                if pd.isna(atr):
+                    continue
+                sl = entry - atr if side == "buy" else entry + atr
+                tp = entry + 1.5 * atr if side == "buy" else entry - 1.5 * atr
+                tm.state.update({"active": True, "side": side, "entry": entry, "tp": tp, "sl": sl})
+                trades.append([ts, side, entry, None, "open", 0.0, equity])
 
         equity_curve.append(equity)
-        times.append(datetime.fromtimestamp(ts))
+        times.append(ts)
 
     # Save trades
     with open(OUTPUT_CSV, "w", newline="") as f:
@@ -147,6 +193,7 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
     plt.tight_layout()
     plt.savefig("equity_curve.png")
     plt.show()
+
 
 if __name__ == "__main__":
     run_backtest()

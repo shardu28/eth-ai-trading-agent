@@ -20,7 +20,7 @@ def fetch_chunked_candles(client, symbol, resolution, start, end, chunk_days=90)
     cur_start = start
     while cur_start < end:
         cur_end = min(cur_start + chunk_days * 24 * 3600, end)
-        raw = client.get("/history/candles", {   # FIX: no extra /v2
+        raw = client.get("/history/candles", {
             "symbol": symbol,
             "resolution": resolution,
             "start": cur_start,
@@ -39,7 +39,7 @@ def fetch_chunked_funding(client, symbol, resolution, start, end, chunk_days=90)
     cur_start = start
     while cur_start < end:
         cur_end = min(cur_start + chunk_days * 24 * 3600, end)
-        raw = client.get("/history/candles", {   # FIX: no extra /v2
+        raw = client.get("/history/candles", {
             "symbol": f"FUNDING:{symbol}",
             "resolution": resolution,
             "start": cur_start,
@@ -52,9 +52,14 @@ def fetch_chunked_funding(client, symbol, resolution, start, end, chunk_days=90)
     return all_rates
 
 
-def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0,
+def run_backtest(days=365, start_equity=1000.0,
                  atr_mult_sl=1.5, atr_mult_tp=2.5, adx_thresh=20,
-                 avg_window=3, vp_window=50, rvi_period=10):
+                 avg_window=3, vp_window=50, rvi_period=10,
+                 risk_fraction=0.01, session_start=9, session_end=22):
+    """
+    - risk_fraction = % of equity risked per trade
+    - session_start/session_end = allowed trading hours in IST (9 to 22 by default)
+    """
     client = DeltaClient()
 
     end = int(time.time())
@@ -64,7 +69,8 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0,
     frates = fetch_chunked_funding(client, PRODUCT_SYMBOL, "1h", start, end)
 
     df = pd.DataFrame(candles)
-    df["time"] = pd.to_datetime(df["time"], unit="s")
+    df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
+    df["time_ist"] = df["time"].dt.tz_convert("Asia/Kolkata")
     for col in ["open", "high", "low", "close", "volume"]:
         df[col] = df[col].astype(float)
 
@@ -95,12 +101,11 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0,
 
     equity = start_equity
     trades, equity_curve, times = [], [], []
-
-    closes, vols = [], []
     trades_today = {}
 
     for i, row in df.iterrows():
         ts = row["time"]
+        ts_ist = row["time_ist"]
         close = row["close"]
         atr = row["atr"]
         adx = row["adx"]
@@ -108,13 +113,16 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0,
         rvi_sig = row["rvi_signal"]
         vp_ok = close > row["vp_node"]
 
-        closes.append(close)
-        vols.append(row["volume"])
+        # --- TIME FILTER ---
+        if ts_ist.hour < session_start or ts_ist.hour > session_end:
+            equity_curve.append(equity)
+            times.append(ts)
+            continue
 
-        # Check active trade exits
+        # --- Active trade exits ---
         if trades and trades[-1][4] == "open":
             last = trades[-1]
-            entry, side, tp, sl = last[2], last[1], last[7], last[8]
+            entry, side, tp, sl, size = last[2], last[1], last[7], last[8], last[9]
             exit_price, result = None, None
             if side == "buy":
                 if close >= tp: exit_price, result = tp, "tp"
@@ -123,12 +131,11 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0,
                 if close <= tp: exit_price, result = tp, "tp"
                 elif close >= sl: exit_price, result = sl, "sl"
             if result:
-                pnl = (exit_price - entry) if side == "buy" else (entry - exit_price)
-                pnl_usd = (pnl / entry) * risk_per_trade
-                equity += pnl_usd
+                pnl = (exit_price - entry) * size if side == "buy" else (entry - exit_price) * size
+                equity += pnl
                 trades[-1][3] = exit_price
                 trades[-1][4] = result
-                trades[-1][5] = pnl_usd
+                trades[-1][5] = pnl
                 trades[-1][6] = equity
 
         if trades and trades[-1][4] == "open":
@@ -136,6 +143,7 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0,
             times.append(ts)
             continue
 
+        # --- Filters ---
         if i < 30 or pd.isna(adx) or pd.isna(atr):
             equity_curve.append(equity)
             times.append(ts)
@@ -145,27 +153,34 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0,
             times.append(ts)
             continue
 
-        # Signal confirmation
+        # --- Entry signal ---
         ind_sig = vwma_sig
         extra_confirmation = (rvi_sig == ind_sig) or vp_ok
         if ind_sig != 0 and extra_confirmation:
-            day = ts.date()
+            day = ts_ist.date()
             trades_today[day] = trades_today.get(day, 0)
             if trades_today[day] >= 2:
                 equity_curve.append(equity)
                 times.append(ts)
                 continue
 
+            # --- Dynamic position sizing ---
+            risk_capital = equity * risk_fraction
+            size = risk_capital / (atr_mult_sl * atr) if atr > 0 else 0
+            if size <= 0:
+                continue
+
             side = "buy" if ind_sig == 1 else "sell"
             entry = close
             sl = entry - atr_mult_sl * atr if side == "buy" else entry + atr_mult_sl * atr
             tp = entry + atr_mult_tp * atr if side == "buy" else entry - atr_mult_tp * atr
-            trades.append([ts, side, entry, None, "open", 0.0, equity, tp, sl])
+            trades.append([ts, side, entry, None, "open", 0.0, equity, tp, sl, size])
             trades_today[day] += 1
 
         equity_curve.append(equity)
         times.append(ts)
 
+    # --- Metrics ---
     closed_trades = [t for t in trades if t[4] in ("tp", "sl")]
     wins = [t for t in closed_trades if t[4] == "tp"]
     losses = [t for t in closed_trades if t[4] == "sl"]
@@ -179,12 +194,14 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0,
         "win_rate": win_rate,
         "expectancy": expectancy,
         "final_equity": equity,
+        "equity_curve": (times, equity_curve),
         "params": {
             "atr_mult_sl": atr_mult_sl, "atr_mult_tp": atr_mult_tp,
             "adx_thresh": adx_thresh, "avg_window": avg_window,
-            "vp_window": vp_window, "rvi_period": rvi_period
-        },
-        "equity_curve": (times, equity_curve)
+            "vp_window": vp_window, "rvi_period": rvi_period,
+            "risk_fraction": risk_fraction,
+            "session_start": session_start, "session_end": session_end
+        }
     }
 
 
@@ -202,7 +219,7 @@ def optimize():
     trades = best["trades"]
     with open(OUTPUT_CSV, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["time","side","entry","exit","result","pnl_usd","equity","tp","sl"])
+        writer.writerow(["time","side","entry","exit","result","pnl_usd","equity","tp","sl","size"])
         writer.writerows(trades)
 
     times, equity_curve = best["equity_curve"]
@@ -217,11 +234,4 @@ def optimize():
 
 
 if __name__ == "__main__":
-    # Option 1: run optimization sweep
     optimize()
-
-    # Option 2: run a single backtest (uncomment to use)
-    # result = run_backtest()
-    # print("Single Run:", result["params"])
-    # print(f"Trades: {len(result['trades'])} | Win rate: {result['win_rate']:.2%} | "
-    #       f"Expectancy: {result['expectancy']:.2f} | Final equity: {result['final_equity']:.2f}")

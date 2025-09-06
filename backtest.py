@@ -77,13 +77,13 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
         hit = tm.check_close(close)
         if hit:
             exit_price = close
-            side = tm.state["side"]
-            entry = tm.state["entry"]
+            side = hit["side"]
+            entry = hit["entry"]
             pnl = (exit_price - entry) if side == "buy" else (entry - exit_price)
             pnl_usd = (pnl / entry) * risk_per_trade
             equity += pnl_usd
-            trades.append([datetime.fromtimestamp(ts), side, entry, exit_price, hit, pnl_usd, equity])
-            tm.reset()
+            trades.append([datetime.fromtimestamp(ts), side, entry, exit_price, hit["result"], pnl_usd, equity])
+
 
         if i < 30 or not tm.can_issue():
             equity_curve.append(equity)

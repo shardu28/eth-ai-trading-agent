@@ -1,4 +1,4 @@
-ccxt
+requests
+matplotlib
+python-dateutil
 pandas
-ta
-schedule

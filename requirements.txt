@@ -3,3 +3,4 @@ matplotlib
 python-dateutil
 pandas
 ta
+numpy

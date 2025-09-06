@@ -135,22 +135,16 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
         # --- Trade management ---
         if trades and trades[-1][4] == "open":
             last = trades[-1]
-            entry = last[2]
-            side = last[1]
-            tp = last[7]
-            sl = last[8]
-            partial = last[9]
-            hit_partial = last[10]
+            entry, side = last[2], last[1]
+            tp, sl, partial, hit_partial = last[7], last[8], last[9], last[10]
 
-            exit_price, result = None, None
             # Partial exit check
             if not hit_partial:
                 if side == "buy" and close >= partial:
-                    # book half profit, move stop to breakeven
                     pnl = (partial - entry) / entry * risk_per_trade * 0.5
                     equity += pnl
                     last[6] = equity
-                    last[10] = True  # partial hit
+                    last[10] = True
                     last[8] = entry  # move stop to breakeven
                 elif side == "sell" and close <= partial:
                     pnl = (entry - partial) / entry * risk_per_trade * 0.5
@@ -159,14 +153,15 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
                     last[10] = True
                     last[8] = entry
 
-            # Update trailing stop with Supertrend after breakeven
+            # Supertrend trailing stop after partial
             if hit_partial:
                 if side == "buy":
                     last[8] = max(last[8], row["low"]) if st_sig == 1 else last[8]
                 else:
                     last[8] = min(last[8], row["high"]) if st_sig == -1 else last[8]
 
-            # Check exits
+            # Exit logic
+            exit_price, result = None, None
             if side == "buy":
                 if close >= tp:
                     exit_price, result = tp, "tp"
@@ -193,20 +188,18 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
             times.append(ts)
             continue
 
-        # --- Entry conditions ---
+        # --- Entry filters ---
         if i < 30 or pd.isna(vol_ma) or pd.isna(adx) or pd.isna(atr):
             equity_curve.append(equity)
             times.append(ts)
             continue
-        if vol <= vol_ma or adx <= 25:
+        if vol <= vol_ma or adx <= 20:  # lowered threshold
             equity_curve.append(equity)
             times.append(ts)
             continue
 
         # Indicators
-        e9 = ema(closes, 9)
-        e21 = ema(closes, 21)
-        v3 = vwma(closes, vols, 3)
+        e9, e21, v3 = ema(closes, 9), ema(closes, 21), vwma(closes, vols, 3)
         momentum = roc(closes, 3)
 
         ind_sig = ema_cross_signal(closes, e9, e21, v3)
@@ -218,6 +211,7 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
         dirn = 1 if votes.count(1) > votes.count(-1) else -1 if votes else 0
         match_rate = len([v for v in votes if v == dirn]) / len(votes) if votes else 0
 
+        # Entry condition
         if ind_sig and ind_sig == dirn and match_rate >= 0.5 and st_sig == ind_sig and bias == ind_sig:
             day = ts.date()
             trades_today[day] = trades_today.get(day, 0)
@@ -230,7 +224,7 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
             entry = close
             sl = entry - 1.5 * atr if side == "buy" else entry + 1.5 * atr
             tp = entry + 2.5 * atr if side == "buy" else entry - 2.5 * atr
-            partial = entry + 1 * atr if side == "buy" else entry - 1 * atr
+            partial = entry + 1.5 * atr if side == "buy" else entry - 1.5 * atr
             trades.append([ts, side, entry, None, "open", 0.0, equity, tp, sl, partial, False])
             trades_today[day] += 1
 

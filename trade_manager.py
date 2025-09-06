@@ -20,6 +20,7 @@ class TradeManager:
         if not self.state.get("active"):
             return None
         side = self.state["side"]
+        entry = self.state["entry"]
         tp = self.state["tp"]
         sl = self.state["sl"]
         hit = None
@@ -34,8 +35,10 @@ class TradeManager:
             elif last_price >= sl:
                 hit = "sl"
         if hit:
+            result = {"result": hit, "side": side, "entry": entry}
             self.reset()
-        return hit
+            return result
+        return None
 
     def reset(self):
         self.state = {"active": False}

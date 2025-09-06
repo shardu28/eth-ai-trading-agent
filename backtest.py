@@ -9,7 +9,7 @@ from indicators import ema, vwma, roc
 from features import ema_cross_signal
 from sentiment import funding_signal, momentum_signal
 from trade_manager import TradeManager
-from config import PRODUCT_SYMBOL, DELTA_BASE_URL
+from config import PRODUCT_SYMBOL
 
 OUTPUT_CSV = "backtest_results.csv"
 

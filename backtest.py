@@ -15,14 +15,13 @@ from config import PRODUCT_SYMBOL
 
 OUTPUT_CSV = "backtest_results.csv"
 
-# --- New helpers for Averaged VWAP, Volume Profile, and RVI ---
+# --- New helpers for Averaged VWMA, Volume Profile, and RVI ---
 
-def compute_averaged_vwap(df, vwap_window=20, avg_window=3):
-    vwap = (df["close"] * df["volume"]).rolling(window=vwap_window, min_periods=1).sum() / \
-           df["volume"].rolling(window=vwap_window, min_periods=1).sum()
+def compute_averaged_vwma(df, avg_window=3):
     avg_close = df["close"].rolling(window=avg_window, min_periods=1).mean()
-    avg_vwap = vwap.rolling(window=avg_window, min_periods=1).mean()
-    return avg_close, avg_vwap
+    avg_vwma = (df["close"] * df["volume"]).rolling(window=avg_window, min_periods=1).sum() / \
+               df["volume"].rolling(window=avg_window, min_periods=1).sum()
+    return avg_close, avg_vwma
 
 def compute_volume_profile_node(df, window=50, price_precision=2):
     n = len(df)
@@ -133,12 +132,12 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
     df["supertrend"] = supertrend(df)
 
     # --- New indicator columns ---
-    df["avg_close"], df["avg_vwap"] = compute_averaged_vwap(df, vwap_window=20, avg_window=3)
+    df["avg_close"], df["avg_vwma"] = compute_averaged_vwma(df, avg_window=3)
     df["vp_node"] = compute_volume_profile_node(df, window=50, price_precision=2)
     df["rvi"] = compute_rvi_simple(df, period=10)
-    df["vwav_signal"] = 0
-    df.loc[df["avg_close"] > df["avg_vwap"], "vwav_signal"] = 1
-    df.loc[df["avg_close"] < df["avg_vwap"], "vwav_signal"] = -1
+    df["vwma_signal"] = 0
+    df.loc[df["avg_close"] > df["avg_vwma"], "vwma_signal"] = 1
+    df.loc[df["avg_close"] < df["avg_vwma"], "vwma_signal"] = -1
     df["rvi_signal"] = (df["rvi"] > 50).astype(int).replace({0: -1})
 
     # 4h EMA50 slope for bias
@@ -168,7 +167,7 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
         vol_ma = row["vol_ma"]
         st_sig = row["supertrend"]
         bias = row["bias"]
-        vwav_sig = row["vwav_signal"]
+        vwma_sig = row["vwma_signal"]
         rvi_sig = row["rvi_signal"]
         vp_node = row["vp_node"]
 
@@ -241,9 +240,9 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
         dirn = 1 if votes.count(1) > votes.count(-1) else -1 if votes else 0
         match_rate = len([v for v in votes if v == dirn]) / len(votes) if votes else 0
 
-        # --- Extra confirmation: VWAP + RVI + VP breakout ---
+        # --- Extra confirmation: VWMA + RVI + VP breakout ---
         vp_ok = (ind_sig == 1 and close > vp_node) or (ind_sig == -1 and close < vp_node)
-        extra_confirmation = (vwav_sig == ind_sig) and (rvi_sig == ind_sig) and vp_ok
+        extra_confirmation = (vwma_sig == ind_sig) and (rvi_sig == ind_sig) and vp_ok
 
         if ind_sig and ind_sig == dirn and match_rate >= 0.5 and st_sig == ind_sig and bias == ind_sig and extra_confirmation:
             day = ts.date()

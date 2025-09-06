@@ -103,11 +103,15 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
     df4["close"] = df4["close"].astype(float)
     df4["ema50"] = df4["close"].ewm(span=50, adjust=False).mean()
     df4["ema50_slope"] = df4["ema50"].diff()
-    # Map slope back to 1h data
-    bias_map = {}
-    for i, row in df4.iterrows():
-        bias_map[row["time"]] = 1 if row["ema50_slope"] > 0 else -1
-    df["bias"] = df["time"].apply(lambda t: bias_map.get(max([bt for bt in bias_map if bt <= t]), 0))
+    df4["bias"] = df4["ema50_slope"].apply(lambda x: 1 if x > 0 else -1)
+
+    # Merge bias back to 1h data using merge_asof
+    df = pd.merge_asof(
+        df.sort_values("time"),
+        df4[["time", "bias"]].sort_values("time"),
+        on="time",
+        direction="backward"
+    )
 
     equity = start_equity
     trades = []

@@ -20,7 +20,7 @@ def fetch_chunked_candles(client, symbol, resolution, start, end, chunk_days=90)
     cur_start = start
     while cur_start < end:
         cur_end = min(cur_start + chunk_days * 24 * 3600, end)
-        raw = client.get("/v2/history/candles", {
+        raw = client.get("/history/candles", {
             "symbol": symbol,
             "resolution": resolution,
             "start": cur_start,
@@ -39,7 +39,7 @@ def fetch_chunked_funding(client, symbol, resolution, start, end, chunk_days=90)
     cur_start = start
     while cur_start < end:
         cur_end = min(cur_start + chunk_days * 24 * 3600, end)
-        raw = client.get("/v2/history/candles", {
+        raw = client.get("/history/candles", {
             "symbol": f"FUNDING:{symbol}",
             "resolution": resolution,
             "start": cur_start,

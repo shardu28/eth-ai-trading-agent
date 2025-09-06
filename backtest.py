@@ -193,7 +193,7 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
             equity_curve.append(equity)
             times.append(ts)
             continue
-        if vol <= vol_ma or adx <= 20:
+        if vol <= vol_ma or adx <= 25:
             equity_curve.append(equity)
             times.append(ts)
             continue

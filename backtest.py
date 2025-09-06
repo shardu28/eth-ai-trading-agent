@@ -52,7 +52,7 @@ def fetch_chunked_funding(client, symbol, resolution, start, end, chunk_days=90)
     return all_rates
 
 
-def supertrend(df, period=10, multiplier=3):
+def supertrend(df, period=10, multiplier=2):
     hl2 = (df["high"] + df["low"]) / 2
     atr = ta.volatility.AverageTrueRange(
         high=df["high"], low=df["low"], close=df["close"], window=period
@@ -78,6 +78,8 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
 
     # 1h candles for main logic
     candles = fetch_chunked_candles(client, PRODUCT_SYMBOL, "1h", start, end)
+    # 4h candles for directional bias
+    candles_4h = fetch_chunked_candles(client, PRODUCT_SYMBOL, "4h", start, end)
     frates = fetch_chunked_funding(client, PRODUCT_SYMBOL, "1h", start, end)
 
     # Build DataFrame (1h)
@@ -93,11 +95,23 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
         high=df["high"], low=df["low"], close=df["close"], window=14
     ).adx()
     df["vol_ma"] = df["volume"].rolling(20).mean()
-    df["supertrend"] = supertrend(df, period=10, multiplier=3)
+    df["supertrend"] = supertrend(df)
+
+    # 4h EMA50 slope
+    df4 = pd.DataFrame(candles_4h)
+    df4["time"] = pd.to_datetime(df4["time"], unit="s")
+    df4["close"] = df4["close"].astype(float)
+    df4["ema50"] = df4["close"].ewm(span=50, adjust=False).mean()
+    df4["ema50_slope"] = df4["ema50"].diff()
+    bias_map = {}
+    for i, row in df4.iterrows():
+        bias_map[row["time"]] = 1 if row["ema50_slope"] > 0 else -1
+    df["bias"] = df["time"].apply(lambda t: bias_map.get(max([bt for bt in bias_map if bt <= t]), 0) if any(bt <= t for bt in bias_map) else 0)
 
     equity = start_equity
     trades = []
     equity_curve, times = [], []
+
     closes, vols = [], []
     trades_today = {}
 
@@ -109,66 +123,72 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
         adx = row["adx"]
         vol_ma = row["vol_ma"]
         st_sig = row["supertrend"]
+        bias = row["bias"]
 
         closes.append(close)
         vols.append(vol)
 
-        # --- Manage open trade ---
+        # Check if active trade hit TP/SL
         if trades and trades[-1][4] == "open":
             last = trades[-1]
-            entry, side = last[2], last[1]
-            tp, sl, partial, hit_partial = last[7], last[8], last[9], last[10]
-
-            # Partial exit at 1 ATR (30%)
-            if not hit_partial:
-                if side == "buy" and close >= partial:
-                    pnl = (partial - entry) / entry * risk_per_trade * 0.3
-                    equity += pnl
-                    last[6] = equity
-                    last[10] = True
-                    last[8] = entry  # move SL to breakeven
-                elif side == "sell" and close <= partial:
-                    pnl = (entry - partial) / entry * risk_per_trade * 0.3
-                    equity += pnl
-                    last[6] = equity
-                    last[10] = True
-                    last[8] = entry
-
-            # Exit conditions
+            entry = last[2]
+            side = last[1]
+            tp1 = last[7]   # partial TP
+            tp2 = last[9]   # final TP
+            sl = last[8]
             exit_price, result = None, None
+
+            # simulate partial TP (40% closed at 1.2 ATR)
             if side == "buy":
-                if close >= tp:
-                    exit_price, result = tp, "tp"
-                elif close <= last[8]:
-                    exit_price, result = last[8], "sl"
-                elif st_sig == -1:  # supertrend flip
-                    exit_price, result = close, "st_exit"
-            else:
-                if close <= tp:
-                    exit_price, result = tp, "tp"
-                elif close >= last[8]:
-                    exit_price, result = last[8], "sl"
-                elif st_sig == 1:  # supertrend flip
-                    exit_price, result = close, "st_exit"
+                if close >= tp1 and last[10] == 0:
+                    pnl = (tp1 - entry) / entry * risk_per_trade * 0.4
+                    equity += pnl
+                    trades[-1][5] += pnl
+                    trades[-1][6] = equity
+                    trades[-1][10] = 1  # partial taken
+                elif close >= tp2:
+                    pnl = (tp2 - entry) / entry * risk_per_trade * 0.6
+                    equity += pnl
+                    trades[-1][3] = tp2
+                    trades[-1][4] = "tp"
+                    trades[-1][5] += pnl
+                    trades[-1][6] = equity
+                elif close <= sl:
+                    pnl = (sl - entry) / entry * risk_per_trade
+                    equity += pnl
+                    trades[-1][3] = sl
+                    trades[-1][4] = "sl"
+                    trades[-1][5] += pnl
+                    trades[-1][6] = equity
+            else:  # sell
+                if close <= tp1 and last[10] == 0:
+                    pnl = (entry - tp1) / entry * risk_per_trade * 0.4
+                    equity += pnl
+                    trades[-1][5] += pnl
+                    trades[-1][6] = equity
+                    trades[-1][10] = 1
+                elif close <= tp2:
+                    pnl = (entry - tp2) / entry * risk_per_trade * 0.6
+                    equity += pnl
+                    trades[-1][3] = tp2
+                    trades[-1][4] = "tp"
+                    trades[-1][5] += pnl
+                    trades[-1][6] = equity
+                elif close >= sl:
+                    pnl = (entry - sl) / entry * risk_per_trade
+                    equity += pnl
+                    trades[-1][3] = sl
+                    trades[-1][4] = "sl"
+                    trades[-1][5] += pnl
+                    trades[-1][6] = equity
 
-            if result:
-                # scale PnL: if partial hit, remaining 70%; else full
-                size = 0.7 if hit_partial else 1.0
-                pnl = (exit_price - entry) if side == "buy" else (entry - exit_price)
-                pnl_usd = (pnl / entry) * risk_per_trade * size
-                equity += pnl_usd
-                last[3] = exit_price
-                last[4] = result
-                last[5] = pnl_usd
-                last[6] = equity
-
-        # Skip if trade still open
+        # Skip if trade open
         if trades and trades[-1][4] == "open":
             equity_curve.append(equity)
             times.append(ts)
             continue
 
-        # --- Entry filters ---
+        # Filters
         if i < 30 or pd.isna(vol_ma) or pd.isna(adx) or pd.isna(atr):
             equity_curve.append(equity)
             times.append(ts)
@@ -179,7 +199,9 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
             continue
 
         # Indicators
-        e9, e21, v3 = ema(closes, 9), ema(closes, 21), vwma(closes, vols, 3)
+        e9 = ema(closes, 9)
+        e21 = ema(closes, 21)
+        v3 = vwma(closes, vols, 3)
         momentum = roc(closes, 3)
 
         ind_sig = ema_cross_signal(closes, e9, e21, v3)
@@ -191,8 +213,8 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
         dirn = 1 if votes.count(1) > votes.count(-1) else -1 if votes else 0
         match_rate = len([v for v in votes if v == dirn]) / len(votes) if votes else 0
 
-        # Entry condition (bias filter removed)
-        if ind_sig and ind_sig == dirn and match_rate >= 0.5 and st_sig == ind_sig:
+        # Apply filters: indicator + sentiment + bias + supertrend
+        if ind_sig and ind_sig == dirn and match_rate >= 0.5 and st_sig == ind_sig and bias == ind_sig:
             day = ts.date()
             trades_today[day] = trades_today.get(day, 0)
             if trades_today[day] >= 2:
@@ -203,9 +225,9 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
             side = "buy" if ind_sig == 1 else "sell"
             entry = close
             sl = entry - 1.5 * atr if side == "buy" else entry + 1.5 * atr
-            tp = entry + 2 * atr if side == "buy" else entry - 2 * atr
-            partial = entry + 1 * atr if side == "buy" else entry - 1 * atr
-            trades.append([ts, side, entry, None, "open", 0.0, equity, tp, sl, partial, False])
+            tp1 = entry + 1.2 * atr if side == "buy" else entry - 1.2 * atr
+            tp2 = entry + 2.5 * atr if side == "buy" else entry - 2.5 * atr
+            trades.append([ts, side, entry, None, "open", 0.0, equity, tp1, sl, tp2, 0])  # last index = partial flag
             trades_today[day] += 1
 
         equity_curve.append(equity)
@@ -214,16 +236,13 @@ def run_backtest(days=365, start_equity=1000.0, risk_per_trade=10.0):
     # Save trades
     with open(OUTPUT_CSV, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(
-            ["time", "side", "entry", "exit", "result", "pnl_usd", "equity", "tp", "sl", "partial", "partial_hit"]
-        )
+        writer.writerow(["time", "side", "entry", "exit", "result", "pnl_usd", "equity", "tp1", "sl", "tp2", "partial"])
         writer.writerows(trades)
 
     # Metrics
-    closed_trades = [t for t in trades if t[4] in ("tp", "sl", "st_exit")]
+    closed_trades = [t for t in trades if t[4] in ("tp", "sl")]
     wins = [t for t in closed_trades if t[4] == "tp"]
     losses = [t for t in closed_trades if t[4] == "sl"]
-    others = [t for t in closed_trades if t[4] == "st_exit"]
     win_rate = len(wins) / len(closed_trades) if closed_trades else 0
     avg_win = sum(t[5] for t in wins) / len(wins) if wins else 0
     avg_loss = sum(t[5] for t in losses) / len(losses) if losses else 0

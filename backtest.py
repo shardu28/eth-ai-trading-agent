@@ -96,7 +96,7 @@ def compute_rvi_simple(df, period=10):
     return rvi
 
 
-def run_backtest(days=365 * 5, start_equity=1000.0,
+def run_backtest(days=365 * 2, start_equity=1000.0,
                  atr_mult_sl=1.5, atr_mult_tp=2.5, adx_thresh=25,
                  avg_window=5, vp_window=50, rvi_period=10,
                  risk_fraction=0.01, session_start=9, session_end=22,
@@ -341,7 +341,7 @@ def run_backtest(days=365 * 5, start_equity=1000.0,
 if __name__ == "__main__":
     # Hardcoded "sweet spot" params (you requested these)
     result = run_backtest(
-        days=365 * 5,
+        days=365 * 2,
         start_equity=1000.0,
         atr_mult_sl=1.5,
         atr_mult_tp=2.5,

@@ -31,7 +31,7 @@ def fetch_chunked_candles(client, symbol, resolution, start, end, chunk_days=90)
     return all_candles
 
 
-def ohlc_to_renko(df, box_size=50):
+def ohlc_to_renko(df, box_size=5):
     """
     Convert OHLC candles into Renko bricks.
     box_size = brick size in USD.
@@ -199,4 +199,4 @@ def run_backtest(days=365, start_equity=1000.0,
 
 
 if __name__ == "__main__":
-    run_backtest(days=365, renko_box_size=50)
+    run_backtest(days=365, renko_box_size=5)

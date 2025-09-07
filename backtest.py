@@ -52,23 +52,6 @@ def fetch_chunked_funding(client, symbol, resolution, start, end, chunk_days=90)
     return all_rates
 
 
-def heikin_ashi(df):
-    ha_df = df.copy()
-    ha_df["HA_close"] = (df["open"] + df["high"] + df["low"] + df["close"]) / 4
-    ha_open = []
-    for i in range(len(df)):
-        if i == 0:
-            ha_open.append((df["open"].iloc[0] + df["close"].iloc[0]) / 2)
-        else:
-            ha_open.append((ha_open[-1] + ha_df["HA_close"].iloc[i - 1]) / 2)
-    ha_df["HA_open"] = ha_open
-    ha_df["HA_high"] = ha_df[["high", "HA_open", "HA_close"]].max(axis=1)
-    ha_df["HA_low"] = ha_df[["low", "HA_open", "HA_close"]].min(axis=1)
-    return ha_df[["time", "HA_open", "HA_high", "HA_low", "HA_close", "volume"]].rename(
-        columns={"HA_open": "open", "HA_high": "high", "HA_low": "low", "HA_close": "close"}
-    )
-
-
 def run_backtest(days=365, start_equity=1000.0,
                  atr_mult_sl=1.5, atr_mult_tp=2.5, adx_thresh=25,
                  avg_window=5, vp_window=50, rvi_period=10,
@@ -86,10 +69,6 @@ def run_backtest(days=365, start_equity=1000.0,
     df["time_ist"] = df["time"].dt.tz_convert("Asia/Kolkata")
     for col in ["open", "high", "low", "close", "volume"]:
         df[col] = df[col].astype(float)
-
-    # --- convert to Heikin Ashi candles ---
-    df = heikin_ashi(df)
-    df["time_ist"] = df["time"].dt.tz_convert("Asia/Kolkata")
 
     # --- indicators ---
     df["atr"] = ta.volatility.AverageTrueRange(
@@ -206,7 +185,7 @@ def run_backtest(days=365, start_equity=1000.0,
     times, equity_curve = times, equity_curve
     plt.figure(figsize=(10,5))
     plt.plot(times, equity_curve, label="Equity")
-    plt.title("Equity Curve (Heikin Ashi)")
+    plt.title("Equity Curve")
     plt.legend(); plt.grid(True); plt.tight_layout()
     plt.savefig("equity_curve.png")
 

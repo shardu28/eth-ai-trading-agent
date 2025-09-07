@@ -52,20 +52,40 @@ def orderbook_imbalance_from_l2(l2_json, top_n=5):
     return float(imb)
 
 def trade_flow_from_trades(trades_json, lookback=100):
-    trades = trades_json.get("result", {}).get("trades", [])[:lookback]
+    """
+    Handles both formats:
+      - {"success":true, "result":{"trades":[...]}}
+      - {"success":true, "result":[...]} or just [...]
+    """
+    # normalize structure
+    if isinstance(trades_json, dict):
+        if "result" in trades_json:
+            if isinstance(trades_json["result"], dict) and "trades" in trades_json["result"]:
+                trades = trades_json["result"]["trades"]
+            elif isinstance(trades_json["result"], list):
+                trades = trades_json["result"]
+            else:
+                trades = []
+        else:
+            trades = []
+    elif isinstance(trades_json, list):
+        trades = trades_json
+    else:
+        trades = []
+
+    trades = trades[:lookback]
     if not trades:
         return 0.0
-    signed = 0.0
-    total = 0.0
+
+    signed, total = 0.0, 0.0
     for t in trades:
         side = t.get("side", "").lower()
         size = float(t.get("size", 0) or 0)
         sign = 1.0 if side == "buy" else -1.0
         signed += sign * size
         total += size
-    if total == 0:
-        return 0.0
-    return float(signed / total)
+
+    return float(signed / total) if total > 0 else 0.0
 
 # ---- orchestration: fetch data for today 09:00-11:00 IST ----
 def run_pseudo_live(session_start_ist=9, session_end_ist=11,

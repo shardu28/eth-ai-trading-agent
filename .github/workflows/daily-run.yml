@@ -24,7 +24,7 @@ jobs:
 
       - name: Run backtest
         run: |
-          python backtest.py
+          python renko.py
 
       - name: Convert CSV to Excel
         run: |
@@ -39,5 +39,5 @@ jobs:
         with:
           name: backtest-output
           path: |
-            backtest_results.xlsx
-            equity_curve.png
+            backtest_Renko_results.xlsx
+            renko_equity.png

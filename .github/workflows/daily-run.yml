@@ -24,14 +24,14 @@ jobs:
 
       - name: Run backtest
         run: |
-          python renko.py
+          python backtest.py
 
       - name: Convert CSV to Excel
         run: |
           python - <<EOF
           import pandas as pd
-          df = pd.read_csv("renko_results.csv")
-          df.to_excel("renko_results.xlsx", index=False, engine="openpyxl")
+          df = pd.read_csv("backtest_results.csv")
+          df.to_excel("backtest_results.xlsx", index=False, engine="openpyxl")
           EOF
 
       - name: Upload backtest results
@@ -39,5 +39,5 @@ jobs:
         with:
           name: backtest-output
           path: |
-            renko_results.xlsx
-            renko_equity.png
+            backtest_results.xlsx
+            equity_curve.png

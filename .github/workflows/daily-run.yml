@@ -1,12 +1,12 @@
-name: run-backtest
+name: run-pseudo-live
 
 on:
-  workflow_dispatch:    # allow manual trigger
+  workflow_dispatch:      # allow manual trigger
   schedule:
-    - cron: '0 2 * * *'   # runs daily at 02:00 UTC (7:30 AM IST)
+    - cron: '0 4 * * *'   # runs daily at 04:00 UTC (9:30 AM IST)
 
 jobs:
-  backtest:
+  pseudo-live:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,14 +21,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run backtest
+      - name: Run pseudo-live test
         run: |
-          python backtest.py
-          
-      - name: Upload backtest results
+          python pseudo_live.py
+
+      - name: Upload pseudo-live results
         uses: actions/upload-artifact@v4
         with:
-          name: backtest-output
+          name: pseudo-live-output
           path: |
-            backtest_results.csv
-            equity_curve.png
+            pseudo_live_signal.csv

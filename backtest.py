@@ -52,14 +52,27 @@ def fetch_chunked_funding(client, symbol, resolution, start, end, chunk_days=90)
     return all_rates
 
 
+def heikin_ashi(df):
+    ha_df = df.copy()
+    ha_df["HA_close"] = (df["open"] + df["high"] + df["low"] + df["close"]) / 4
+    ha_open = []
+    for i in range(len(df)):
+        if i == 0:
+            ha_open.append((df["open"].iloc[0] + df["close"].iloc[0]) / 2)
+        else:
+            ha_open.append((ha_open[-1] + ha_df["HA_close"].iloc[i - 1]) / 2)
+    ha_df["HA_open"] = ha_open
+    ha_df["HA_high"] = ha_df[["high", "HA_open", "HA_close"]].max(axis=1)
+    ha_df["HA_low"] = ha_df[["low", "HA_open", "HA_close"]].min(axis=1)
+    return ha_df[["time", "HA_open", "HA_high", "HA_low", "HA_close", "volume"]].rename(
+        columns={"HA_open": "open", "HA_high": "high", "HA_low": "low", "HA_close": "close"}
+    )
+
+
 def run_backtest(days=365, start_equity=1000.0,
-                 atr_mult_sl=1.5, atr_mult_tp=2.5, adx_thresh=20,
-                 avg_window=3, vp_window=50, rvi_period=10,
+                 atr_mult_sl=1.5, atr_mult_tp=2.5, adx_thresh=25,
+                 avg_window=5, vp_window=50, rvi_period=10,
                  risk_fraction=0.01, session_start=9, session_end=22):
-    """
-    - risk_fraction = % of equity risked per trade
-    - session_start/session_end = allowed trading hours in IST (9 to 22 by default)
-    """
     client = DeltaClient()
 
     end = int(time.time())
@@ -74,6 +87,11 @@ def run_backtest(days=365, start_equity=1000.0,
     for col in ["open", "high", "low", "close", "volume"]:
         df[col] = df[col].astype(float)
 
+    # --- convert to Heikin Ashi candles ---
+    df = heikin_ashi(df)
+    df["time_ist"] = df["time"].dt.tz_convert("Asia/Kolkata")
+
+    # --- indicators ---
     df["atr"] = ta.volatility.AverageTrueRange(
         high=df["high"], low=df["low"], close=df["close"], window=14
     ).average_true_range()
@@ -81,7 +99,6 @@ def run_backtest(days=365, start_equity=1000.0,
         high=df["high"], low=df["low"], close=df["close"], window=14
     ).adx()
 
-    # --- Averaged VWMA logic ---
     df["avg_close"] = df["close"].rolling(window=avg_window).mean()
     df["avg_vwma"] = (df["close"] * df["volume"]).rolling(window=avg_window).sum() / \
                      df["volume"].rolling(window=avg_window).sum()
@@ -89,12 +106,10 @@ def run_backtest(days=365, start_equity=1000.0,
     df.loc[df["avg_close"] > df["avg_vwma"], "vwma_signal"] = 1
     df.loc[df["avg_close"] < df["avg_vwma"], "vwma_signal"] = -1
 
-    # --- RVI quick approximation ---
     df["rvi"] = df["close"].pct_change().rolling(rvi_period).std()
     mean_rvi = df["rvi"].mean()
     df["rvi_signal"] = df["rvi"].apply(lambda x: 1 if x > mean_rvi else -1)
 
-    # --- Volume Profile node ---
     df["vp_node"] = df["close"].rolling(vp_window).apply(
         lambda x: x.value_counts().idxmax() if len(x) > 0 else 0, raw=False
     )
@@ -106,20 +121,17 @@ def run_backtest(days=365, start_equity=1000.0,
     for i, row in df.iterrows():
         ts = row["time"]
         ts_ist = row["time_ist"]
-        close = row["close"]
-        atr = row["atr"]
-        adx = row["adx"]
-        vwma_sig = row["vwma_signal"]
-        rvi_sig = row["rvi_signal"]
+        close, atr, adx = row["close"], row["atr"], row["adx"]
+        vwma_sig, rvi_sig = row["vwma_signal"], row["rvi_signal"]
         vp_ok = close > row["vp_node"]
 
-        # --- TIME FILTER ---
+        # time filter
         if ts_ist.hour < session_start or ts_ist.hour > session_end:
             equity_curve.append(equity)
             times.append(ts)
             continue
 
-        # --- Active trade exits ---
+        # exits
         if trades and trades[-1][4] == "open":
             last = trades[-1]
             entry, side, tp, sl, size = last[2], last[1], last[7], last[8], last[9]
@@ -143,7 +155,6 @@ def run_backtest(days=365, start_equity=1000.0,
             times.append(ts)
             continue
 
-        # --- Filters ---
         if i < 30 or pd.isna(adx) or pd.isna(atr):
             equity_curve.append(equity)
             times.append(ts)
@@ -153,7 +164,6 @@ def run_backtest(days=365, start_equity=1000.0,
             times.append(ts)
             continue
 
-        # --- Entry signal ---
         ind_sig = vwma_sig
         extra_confirmation = (rvi_sig == ind_sig) or vp_ok
         if ind_sig != 0 and extra_confirmation:
@@ -164,7 +174,6 @@ def run_backtest(days=365, start_equity=1000.0,
                 times.append(ts)
                 continue
 
-            # --- Dynamic position sizing ---
             risk_capital = equity * risk_fraction
             size = risk_capital / (atr_mult_sl * atr) if atr > 0 else 0
             if size <= 0:
@@ -180,7 +189,6 @@ def run_backtest(days=365, start_equity=1000.0,
         equity_curve.append(equity)
         times.append(ts)
 
-    # --- Metrics ---
     closed_trades = [t for t in trades if t[4] in ("tp", "sl")]
     wins = [t for t in closed_trades if t[4] == "tp"]
     losses = [t for t in closed_trades if t[4] == "sl"]
@@ -189,49 +197,21 @@ def run_backtest(days=365, start_equity=1000.0,
     avg_loss = sum(t[5] for t in losses) / len(losses) if losses else 0
     expectancy = win_rate * avg_win + (1 - win_rate) * avg_loss
 
-    return {
-        "trades": trades,
-        "win_rate": win_rate,
-        "expectancy": expectancy,
-        "final_equity": equity,
-        "equity_curve": (times, equity_curve),
-        "params": {
-            "atr_mult_sl": atr_mult_sl, "atr_mult_tp": atr_mult_tp,
-            "adx_thresh": adx_thresh, "avg_window": avg_window,
-            "vp_window": vp_window, "rvi_period": rvi_period,
-            "risk_fraction": risk_fraction,
-            "session_start": session_start, "session_end": session_end
-        }
-    }
-
-
-def optimize():
-    best = None
-    for adx in [15, 20, 25]:
-        for sl, tp in [(1.2, 2.0), (1.5, 2.5), (2.0, 3.0)]:
-            for avg_win in [3, 5]:
-                result = run_backtest(adx_thresh=adx, atr_mult_sl=sl, atr_mult_tp=tp, avg_window=avg_win)
-                if (best is None or
-                    result["final_equity"] > best["final_equity"] or
-                    (result["win_rate"] > best["win_rate"] and result["expectancy"] > best["expectancy"])):
-                    best = result
-
-    trades = best["trades"]
+    trades_out = trades
     with open(OUTPUT_CSV, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["time","side","entry","exit","result","pnl_usd","equity","tp","sl","size"])
-        writer.writerows(trades)
+        writer.writerows(trades_out)
 
-    times, equity_curve = best["equity_curve"]
+    times, equity_curve = times, equity_curve
     plt.figure(figsize=(10,5))
     plt.plot(times, equity_curve, label="Equity")
-    plt.title("Best Equity Curve")
+    plt.title("Equity Curve (Heikin Ashi)")
     plt.legend(); plt.grid(True); plt.tight_layout()
     plt.savefig("equity_curve.png")
-    print("Best Params:", best["params"])
-    print(f"Trades: {len(trades)} | Win rate: {best['win_rate']:.2%} | "
-          f"Expectancy: {best['expectancy']:.2f} | Final equity: {best['final_equity']:.2f}")
+
+    print(f"Trades: {len(trades_out)} | Win rate: {win_rate:.2%} | Expectancy: {expectancy:.2f} | Final equity: {equity:.2f}")
 
 
 if __name__ == "__main__":
-    optimize()
+    run_backtest()

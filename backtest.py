@@ -59,10 +59,10 @@ def compute_volume_profile_node_array(closes, volumes, window=50, price_precisio
     return nodes
 
 
-def run_backtest(days=1825, start_equity=1000.0,
+def run_backtest(days=365, start_equity=1000.0,
                  atr_mult_sl=1.5, atr_mult_tp=2.5,
                  adx_thresh=25, avg_window=5, vp_window=50, rvi_period=10,
-                 risk_fraction=0.01):
+                 risk_fraction=0.01, session_start=9, session_end=22):
     client = DeltaClient()
 
     end = int(time.time())
@@ -101,13 +101,10 @@ def run_backtest(days=1825, start_equity=1000.0,
 
     for i, row in df.iterrows():
         ts = row["time"]
-        ts_est = ts.tz_convert("US/Eastern")
-        # ---- US session filter ----
-        if not (ts_est.hour > 9 or (ts_est.hour == 9 and ts_est.minute >= 30)):
-            equity_curve.append(equity)
-            times.append(ts)
-            continue
-        if ts_est.hour >= 16:
+        ts_ist = ts.tz_convert("Asia/Kolkata")
+
+        # ---- IST session filter ----
+        if ts_ist.hour < session_start or ts_ist.hour >= session_end:
             equity_curve.append(equity)
             times.append(ts)
             continue
@@ -202,7 +199,7 @@ def run_backtest(days=1825, start_equity=1000.0,
 
     plt.figure(figsize=(10, 5))
     plt.plot(times, equity_curve, label="Equity")
-    plt.title("Equity Curve (Backtest) — US Session Only")
+    plt.title("Equity Curve (Backtest) — 9 AM to 10 PM IST")
     plt.xlabel("Time")
     plt.ylabel("Equity (USD)")
     plt.legend()

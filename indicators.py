@@ -88,34 +88,22 @@ def generate_signal(candles_csv="candles.csv",
     for col in ["open", "high", "low", "close", "volume"]:
         df[col] = df[col].astype(float)
 
-    # ---- Indicators ----
-    df["atr"] = ta.volatility.AverageTrueRange(
-        high=df["high"], low=df["low"], close=df["close"], window=14
-    ).average_true_range()
-    df["adx"] = ta.trend.ADXIndicator(
-        high=df["high"], low=df["low"], close=df["close"], window=14
-    ).adx()
-
-    df["avg_close"] = df["close"].rolling(window=avg_window).mean()
-    df["avg_vwma"] = (df["close"] * df["volume"]).rolling(window=avg_window).sum() / \
-                     df["volume"].rolling(window=avg_window).sum()
-    df["vwma_signal"] = 0
-    df.loc[df["avg_close"] > df["avg_vwma"], "vwma_signal"] = 1
-    df.loc[df["avg_close"] < df["avg_vwma"], "vwma_signal"] = -1
-
-    df["rvi"] = df["close"].pct_change().rolling(rvi_period).std()
-    mean_rvi = df["rvi"].mean()
-    df["rvi_signal"] = df["rvi"].apply(lambda x: 1 if x > mean_rvi else -1)
-
-    df["vp_node"] = df["close"].rolling(vp_window).apply(
-        lambda x: x.value_counts().idxmax() if len(x) > 0 else 0, raw=False
-    )
+    # ---- Compute indicators ----
+    df = compute_indicators(df,
+                            atr_mult_sl=atr_mult_sl,
+                            atr_mult_tp=atr_mult_tp,
+                            adx_thresh=adx_thresh,
+                            avg_window=avg_window,
+                            vp_window=vp_window,
+                            rvi_period=rvi_period)
 
     # ---- Last row for signal ----
     last = df.iloc[-1]
     adx, atr, close = last["adx"], last["atr"], last["close"]
     vwma_sig, rvi_sig = last["vwma_signal"], last["rvi_signal"]
-    vp_ok = close > last["vp_node"]
+
+    # Match backtest logic: VP confirmation depends on direction
+    vp_ok = (close > last["vp_node"] if vwma_sig == 1 else close < last["vp_node"])
 
     signal, entry, sl, tp, size = "neutral", None, None, None, None
     if pd.notna(adx) and pd.notna(atr) and adx > adx_thresh:

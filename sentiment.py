@@ -1,4 +1,3 @@
-# sentiment.py
 import os
 import json
 import time
@@ -34,14 +33,14 @@ def load_existing(path):
     return pd.DataFrame()
 
 def fetch_l2_sentiment(symbol=PRODUCT_SYMBOL, depth=L2_DEPTH):
-    ob = client.get("/v2/l2orderbook", {"symbol": symbol, "depth": depth})
+    ob = client.get("/l2orderbook", {"symbol": symbol, "depth": depth})
     bids = sum([b["size"] for b in ob["buy_levels"]])
     asks = sum([a["size"] for a in ob["sell_levels"]])
     imbalance = (bids - asks) / (bids + asks) if (bids + asks) > 0 else 0
     return imbalance
 
 def fetch_trades_sentiment(symbol=PRODUCT_SYMBOL, lookback=TRADES_LOOKBACK):
-    trades = client.get("/v2/public/trades", {"symbol": symbol, "limit": lookback})
+    trades = client.get("/public/trades", {"symbol": symbol, "limit": lookback})
     signed = sum([t["size"] if t["side"] == "buy" else -t["size"] for t in trades["trades"]])
     total = sum([t["size"] for t in trades["trades"]])
     flow = signed / total if total > 0 else 0
@@ -112,6 +111,25 @@ def run_sentiment():
     atomic_json(agg, SENTIMENT_AGG_FILE)
 
     print(f"[{run_time_ist}] Imbalance={imbalance:.3f}, Flow={flow:.3f}, Score={score:.3f}, Avg4={avg_score:.3f}")
+
+# --- NEW: helper for main.py ---
+def get_latest_sentiment(sentiment_file=SENTIMENT_FILE, agg_file=SENTIMENT_AGG_FILE):
+    """
+    Returns the most recent averaged sentiment score.
+    Priority: sentiment_agg.json avg -> latest sentiment.csv row -> 0 fallback.
+    """
+    if os.path.exists(agg_file):
+        with open(agg_file, "r") as f:
+            agg = json.load(f)
+            if "avg_sentiment_last_4" in agg:
+                return float(agg["avg_sentiment_last_4"])
+
+    if os.path.exists(sentiment_file):
+        df = pd.read_csv(sentiment_file)
+        if not df.empty and "sentiment_score" in df.columns:
+            return float(df["sentiment_score"].iloc[-1])
+
+    return 0.0
 
 if __name__ == "__main__":
     run_sentiment()

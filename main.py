@@ -1,129 +1,154 @@
-from ta.trend import EMAIndicator, ADXIndicator
-from ta.momentum import RSIIndicator
-from ta.volatility import AverageTrueRange
-import ccxt
-import pandas as pd
-import smtplib
+# main.py
 import os
+import pandas as pd
+from datetime import datetime
+import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# Email Configuration (Read securely from GitHub Actions secrets)
-EMAIL_ADDRESS = os.getenv('EMAIL_ADDRESS')
-EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
-RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')
+from indicators import generate_signal
+from sentiment import get_latest_sentiment  # <- ensure this function exists in sentiment.py
 
-# Initialize Exchange
-exchange = ccxt.kucoin()
-symbol = 'ETH/USDT'
 
-def fetch_ohlcv():
-    data = exchange.fetch_ohlcv(symbol, timeframe='1d', limit=100)
-    df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    return df
+# --- Config ---
+EQUITY = 1000
+ADX_THRESH = 25
+ATR_MULT_SL = 1.5
+ATR_MULT_TP = 2.5
+AVG_WINDOW = 5
+VP_WINDOW = 50
+RVI_PERIOD = 10
+RISK_FRACTION = 0.01
 
-def add_indicators(df):
-    df['ema_50'] = EMAIndicator(close=df['close'], window=50).ema_indicator()
-    df['rsi'] = RSIIndicator(close=df['close'], window=14).rsi()
-    df['atr'] = AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14).average_true_range()
-    df['volume_sma_20'] = df['volume'].rolling(window=20).mean()
-    adx = ADXIndicator(high=df['high'], low=df['low'], close=df['close'], window=14)
-    df['adx'] = adx.adx()
-    return df
+EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+TO_EMAIL = "your_target_email@example.com"  # <-- set recipient
 
-def detect_rsi_divergence(df):
-    # Detect basic bullish or bearish RSI divergence over last 5 candles
-    lows = df['low'].iloc[-5:]
-    highs = df['high'].iloc[-5:]
-    rsi = df['rsi'].iloc[-5:]
 
-    # Bullish Divergence
-    if lows.iloc[-1] < lows.iloc[-2] and rsi.iloc[-1] > rsi.iloc[-2]:
-        return "Bullish"
+# --- Decision Matrix Logic ---
+def decide_trade(ind_signal, sentiment_score):
+    """
+    Compare indicator signal with sentiment score and return final decision.
+    """
+    signal_side = ind_signal["signal"]
+    entry, tp, sl, size = ind_signal["entry"], ind_signal["take_profit"], ind_signal["stop_loss"], ind_signal["size"]
 
-    # Bearish Divergence
-    if highs.iloc[-1] > highs.iloc[-2] and rsi.iloc[-1] < rsi.iloc[-2]:
-        return "Bearish"
+    decision = {"side": "no_trade", "entry": None, "tp": None, "sl": None, "size": 0, "reason": ""}
 
-    return None
+    # No signal from indicators
+    if signal_side == "neutral" or entry is None:
+        decision["reason"] = "Indicator returned neutral"
+        return decision
 
-def generate_trade_idea(df):
-    latest = df.iloc[-1]
-    signal = None
+    # Sentiment thresholds
+    strong_buy = sentiment_score > 0.25
+    weak_buy = 0 < sentiment_score <= 0.25
+    strong_sell = sentiment_score < -0.25
+    weak_sell = -0.25 <= sentiment_score < 0
 
-    # Filters
-    volume_ok = latest['volume'] > latest['volume_sma_20']
-    adx_ok = latest['adx'] > 20
-    divergence = detect_rsi_divergence(df)
+    # --- Full Agreement ---
+    if (signal_side == "buy" and strong_buy) or (signal_side == "sell" and strong_sell):
+        decision.update({"side": signal_side, "entry": entry, "tp": tp, "sl": sl, "size": size, "reason": "Full agreement"})
+        return decision
 
-    if not volume_ok or not adx_ok:
-        return None  # Skip trade if filters fail
+    # --- Soft Conflict (same direction but weak sentiment) ---
+    if (signal_side == "buy" and weak_buy) or (signal_side == "sell" and weak_sell):
+        adj_sl = entry - 1.0 * ind_signal["atr"] if signal_side == "buy" else entry + 1.0 * ind_signal["atr"]
+        adj_tp = entry + 1.5 * ind_signal["atr"] if signal_side == "buy" else entry - 1.5 * ind_signal["atr"]
+        adj_size = size * 0.5
 
-    rrr = 1.5  # Risk-to-reward ratio
-    entry = round(latest['close'], 2)
-    atr = latest['atr']
+        decision.update({"side": signal_side, "entry": entry, "tp": adj_tp, "sl": adj_sl, "size": adj_size, "reason": "Soft conflict — reduced risk"})
+        return decision
 
-    # BUY Signal
-    if latest['close'] > latest['ema_50'] and latest['rsi'] > 55 and divergence == "Bullish":
-        sl = round(entry - atr, 2)
-        tp = round(entry + rrr * (entry - sl), 2)
-        signal = {
-            "symbol": symbol,
-            "direction": "BUY",
-            "entry": entry,
-            "stop_loss": sl,
-            "take_profit": tp,
-            "risk_reward": "1:1.5",
-            "reason": "Volume > avg, ADX > 20, Bullish RSI divergence, Close > EMA50, RSI > 55"
-        }
+    # --- Hard Conflict (opposite direction) ---
+    if (signal_side == "buy" and sentiment_score < -0.1) or (signal_side == "sell" and sentiment_score > 0.1):
+        decision["reason"] = f"Hard conflict — indicator={signal_side}, sentiment={sentiment_score:.2f}"
+        return decision
 
-    # SELL Signal
-    elif latest['close'] < latest['ema_50'] and latest['rsi'] < 45 and divergence == "Bearish":
-        sl = round(entry + atr, 2)
-        tp = round(entry - rrr * (sl - entry), 2)
-        signal = {
-            "symbol": symbol,
-            "direction": "SELL",
-            "entry": entry,
-            "stop_loss": sl,
-            "take_profit": tp,
-            "risk_reward": "1:1.5",
-            "reason": "Volume > avg, ADX > 20, Bearish RSI divergence, Close < EMA50, RSI < 45"
-        }
+    # Default case
+    decision["reason"] = "No clear alignment"
+    return decision
 
-    return signal
 
-def send_email(signal):
-    subject = f"[Trade Signal] {signal['symbol']} - {signal['direction']}"
-    body = "\n".join([f"{key}: {value}" for key, value in signal.items()])
+# --- Email Sending ---
+def send_email_report(trade_decision, ind_signal, sentiment_score):
+    subject = f"ETH Trading Signal Report - {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}"
+    body = f"""
+    ---- Trading Signal Report ----
+    Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}
+
+    Indicator Signal: {ind_signal['signal']}
+    Entry: {ind_signal['entry']}
+    TP: {ind_signal['take_profit']}
+    SL: {ind_signal['stop_loss']}
+    Size: {ind_signal['size']:.4f if ind_signal['size'] else 0}
+
+    Sentiment Score: {sentiment_score:.4f}
+
+    Final Decision: {trade_decision['side']}
+    Reason: {trade_decision['reason']}
+
+    Final Entry: {trade_decision['entry']}
+    Final TP: {trade_decision['tp']}
+    Final SL: {trade_decision['sl']}
+    Final Size: {trade_decision['size']}
+
+    --------------------------------
+    """
 
     msg = MIMEMultipart()
-    msg['From'] = EMAIL_ADDRESS
-    msg['To'] = RECIPIENT_EMAIL
-    msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
+    msg["From"] = EMAIL_ADDRESS
+    msg["To"] = TO_EMAIL
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
 
     try:
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-            server.send_message(msg)
-        print("Email sent successfully.")
+            server.sendmail(EMAIL_ADDRESS, TO_EMAIL, msg.as_string())
+        print("✅ Email sent successfully")
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        print(f"❌ Email sending failed: {e}")
 
-def run_agent():
-    df = fetch_ohlcv()
-    df = add_indicators(df)
-    signal = generate_trade_idea(df)
-    if signal:
-        print("\n--- Trade Signal ---")
-        for key, value in signal.items():
-            print(f"{key}: {value}")
-        send_email(signal)
+
+# --- Main Run ---
+if __name__ == "__main__":
+    print("🚀 Running main.py...")
+
+    # Get indicator signal
+    ind_signal = generate_signal(
+        candles_csv="candles.csv",
+        atr_mult_sl=ATR_MULT_SL, atr_mult_tp=ATR_MULT_TP,
+        adx_thresh=ADX_THRESH, avg_window=AVG_WINDOW,
+        vp_window=VP_WINDOW, rvi_period=RVI_PERIOD,
+        risk_fraction=RISK_FRACTION
+    )
+
+    # Get sentiment score (latest)
+    sentiment_score = get_latest_sentiment("sentiment.csv")
+
+    # Decision
+    trade_decision = decide_trade(ind_signal, sentiment_score)
+    print("📊 Final Decision:", trade_decision)
+
+    # Save to daily report
+    report_file = "daily_report.csv"
+    row = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "indicator_signal": ind_signal["signal"],
+        "sentiment_score": sentiment_score,
+        "final_decision": trade_decision["side"],
+        "reason": trade_decision["reason"],
+        "entry": trade_decision["entry"],
+        "tp": trade_decision["tp"],
+        "sl": trade_decision["sl"],
+        "size": trade_decision["size"],
+    }
+    df = pd.DataFrame([row])
+    if not os.path.exists(report_file):
+        df.to_csv(report_file, index=False)
     else:
-        print("No valid trade signal today.")
+        df.to_csv(report_file, mode="a", header=False, index=False)
 
-# Entry point
-print("[Agent Started] Running ETH trade signal now...")
-run_agent()
+    # Email report
+    send_email_report(trade_decision, ind_signal, sentiment_score)

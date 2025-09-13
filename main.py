@@ -9,9 +9,8 @@ from email.mime.multipart import MIMEMultipart
 from indicators import generate_signal
 from sentiment import get_latest_sentiment  # <- ensure this function exists in sentiment.py
 
-
 # --- Config ---
-EQUITY = 1000
+START_EQUITY = 1000
 ADX_THRESH = 25
 ATR_MULT_SL = 1.5
 ATR_MULT_TP = 2.5
@@ -24,54 +23,75 @@ EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 TO_EMAIL = "your_target_email@example.com"  # <-- set recipient
 
+TRADEBOOK_FILE = "tradebook.csv"
+
+
+# --- Helpers for Equity/Tradebook ---
+def load_equity():
+    if os.path.exists(TRADEBOOK_FILE):
+        df = pd.read_csv(TRADEBOOK_FILE)
+        if not df.empty and "equity_after" in df.columns:
+            return float(df["equity_after"].iloc[-1])
+    return START_EQUITY
+
+
+def update_tradebook(trade_decision, ind_signal, sentiment_score, equity):
+    row = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "side": trade_decision["side"],
+        "entry": trade_decision["entry"],
+        "tp": trade_decision["tp"],
+        "sl": trade_decision["sl"],
+        "size": trade_decision["size"],
+        "sentiment_score": sentiment_score,
+        "signal_source": ind_signal["signal"],
+        "status": "open" if trade_decision["side"] in ["buy", "sell"] else "no_trade",
+        "equity_after": equity,
+    }
+    df = pd.DataFrame([row])
+    if not os.path.exists(TRADEBOOK_FILE):
+        df.to_csv(TRADEBOOK_FILE, index=False)
+    else:
+        df.to_csv(TRADEBOOK_FILE, mode="a", header=False, index=False)
+
 
 # --- Decision Matrix Logic ---
 def decide_trade(ind_signal, sentiment_score):
-    """
-    Compare indicator signal with sentiment score and return final decision.
-    """
     signal_side = ind_signal["signal"]
     entry, tp, sl, size = ind_signal["entry"], ind_signal["take_profit"], ind_signal["stop_loss"], ind_signal["size"]
 
     decision = {"side": "no_trade", "entry": None, "tp": None, "sl": None, "size": 0, "reason": ""}
 
-    # No signal from indicators
     if signal_side == "neutral" or entry is None:
         decision["reason"] = "Indicator returned neutral"
         return decision
 
-    # Sentiment thresholds
     strong_buy = sentiment_score > 0.25
     weak_buy = 0 < sentiment_score <= 0.25
     strong_sell = sentiment_score < -0.25
     weak_sell = -0.25 <= sentiment_score < 0
 
-    # --- Full Agreement ---
     if (signal_side == "buy" and strong_buy) or (signal_side == "sell" and strong_sell):
         decision.update({"side": signal_side, "entry": entry, "tp": tp, "sl": sl, "size": size, "reason": "Full agreement"})
         return decision
 
-    # --- Soft Conflict (same direction but weak sentiment) ---
     if (signal_side == "buy" and weak_buy) or (signal_side == "sell" and weak_sell):
         adj_sl = entry - 1.0 * ind_signal["atr"] if signal_side == "buy" else entry + 1.0 * ind_signal["atr"]
         adj_tp = entry + 1.5 * ind_signal["atr"] if signal_side == "buy" else entry - 1.5 * ind_signal["atr"]
         adj_size = size * 0.5
-
         decision.update({"side": signal_side, "entry": entry, "tp": adj_tp, "sl": adj_sl, "size": adj_size, "reason": "Soft conflict — reduced risk"})
         return decision
 
-    # --- Hard Conflict (opposite direction) ---
     if (signal_side == "buy" and sentiment_score < -0.1) or (signal_side == "sell" and sentiment_score > 0.1):
         decision["reason"] = f"Hard conflict — indicator={signal_side}, sentiment={sentiment_score:.2f}"
         return decision
 
-    # Default case
     decision["reason"] = "No clear alignment"
     return decision
 
 
 # --- Email Sending ---
-def send_email_report(trade_decision, ind_signal, sentiment_score):
+def send_email_report(trade_decision, ind_signal, sentiment_score, equity):
     subject = f"ETH Trading Signal Report - {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}"
     body = f"""
     ---- Trading Signal Report ----
@@ -92,6 +112,8 @@ def send_email_report(trade_decision, ind_signal, sentiment_score):
     Final TP: {trade_decision['tp']}
     Final SL: {trade_decision['sl']}
     Final Size: {trade_decision['size']}
+
+    Equity After Trade: {equity:.2f}
 
     --------------------------------
     """
@@ -115,7 +137,8 @@ def send_email_report(trade_decision, ind_signal, sentiment_score):
 if __name__ == "__main__":
     print("🚀 Running main.py...")
 
-    # Get indicator signal
+    equity = load_equity()
+
     ind_signal = generate_signal(
         candles_csv="candles.csv",
         atr_mult_sl=ATR_MULT_SL, atr_mult_tp=ATR_MULT_TP,
@@ -124,31 +147,12 @@ if __name__ == "__main__":
         risk_fraction=RISK_FRACTION
     )
 
-    # Get sentiment score (latest)
     sentiment_score = get_latest_sentiment("sentiment.csv")
 
-    # Decision
     trade_decision = decide_trade(ind_signal, sentiment_score)
     print("📊 Final Decision:", trade_decision)
 
-    # Save to daily report
-    report_file = "daily_report.csv"
-    row = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "indicator_signal": ind_signal["signal"],
-        "sentiment_score": sentiment_score,
-        "final_decision": trade_decision["side"],
-        "reason": trade_decision["reason"],
-        "entry": trade_decision["entry"],
-        "tp": trade_decision["tp"],
-        "sl": trade_decision["sl"],
-        "size": trade_decision["size"],
-    }
-    df = pd.DataFrame([row])
-    if not os.path.exists(report_file):
-        df.to_csv(report_file, index=False)
-    else:
-        df.to_csv(report_file, mode="a", header=False, index=False)
+    if trade_decision["side"] in ["buy", "sell"]:
+        update_tradebook(trade_decision, ind_signal, sentiment_score, equity)
 
-    # Email report
-    send_email_report(trade_decision, ind_signal, sentiment_score)
+    send_email_report(trade_decision, ind_signal, sentiment_score, equity)

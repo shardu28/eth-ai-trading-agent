@@ -1,5 +1,9 @@
-# indicators.py
+import pandas as pd
+import ta
+from datetime import datetime
+import csv
 
+# --- your existing utilities remain unchanged ---
 def ema(series, length):
     if not series or length <= 0 or len(series) < length:
         return [None] * len(series)
@@ -34,3 +38,117 @@ def roc(series, n):
         prev = series[i - n]
         out[i] = (series[i] - prev) / prev if prev else None
     return out
+
+# ---- Indicator Calculations ----
+def compute_indicators(df,
+                       atr_mult_sl=1.5, atr_mult_tp=2.5, adx_thresh=25,
+                       avg_window=5, vp_window=50, rvi_period=10):
+    # ATR & ADX
+    df["atr"] = ta.volatility.AverageTrueRange(
+        high=df["high"], low=df["low"], close=df["close"], window=14
+    ).average_true_range()
+    df["adx"] = ta.trend.ADXIndicator(
+        high=df["high"], low=df["low"], close=df["close"], window=14
+    ).adx()
+
+    # Averaged VWMA vs close
+    df["avg_close"] = df["close"].rolling(window=avg_window).mean()
+    df["avg_vwma"] = (df["close"] * df["volume"]).rolling(window=avg_window).sum() / \
+                     df["volume"].rolling(window=avg_window).sum()
+    df["vwma_signal"] = 0
+    df.loc[df["avg_close"] > df["avg_vwma"], "vwma_signal"] = 1
+    df.loc[df["avg_close"] < df["avg_vwma"], "vwma_signal"] = -1
+
+    # RVI approximation
+    df["rvi"] = df["close"].pct_change().rolling(rvi_period).std()
+    mean_rvi = df["rvi"].mean()
+    df["rvi_signal"] = df["rvi"].apply(lambda x: 1 if x > mean_rvi else -1)
+
+    # Volume profile node (dominant close in rolling window)
+    df["vp_node"] = df["close"].rolling(vp_window).apply(
+        lambda x: x.value_counts().idxmax() if len(x) > 0 else 0, raw=False
+    )
+
+    return df
+                           
+def generate_signal(candles_csv="candles.csv",
+                    atr_mult_sl=1.5, atr_mult_tp=2.5,
+                    adx_thresh=25, avg_window=5,
+                    vp_window=50, rvi_period=10,
+                    risk_fraction=0.01):
+    """
+    Reads candles.csv, computes indicators, and generates final trading signal.
+    Returns dict with signal, entry, TP, SL, and size.
+    Also appends signal to signal.csv for logging.
+    """
+
+    # ---- Load candles ----
+    df = pd.read_csv(candles_csv)
+    df["time"] = pd.to_datetime(df["time"], utc=True)
+    for col in ["open", "high", "low", "close", "volume"]:
+        df[col] = df[col].astype(float)
+
+    # ---- Indicators ----
+    df["atr"] = ta.volatility.AverageTrueRange(
+        high=df["high"], low=df["low"], close=df["close"], window=14
+    ).average_true_range()
+    df["adx"] = ta.trend.ADXIndicator(
+        high=df["high"], low=df["low"], close=df["close"], window=14
+    ).adx()
+
+    df["avg_close"] = df["close"].rolling(window=avg_window).mean()
+    df["avg_vwma"] = (df["close"] * df["volume"]).rolling(window=avg_window).sum() / \
+                     df["volume"].rolling(window=avg_window).sum()
+    df["vwma_signal"] = 0
+    df.loc[df["avg_close"] > df["avg_vwma"], "vwma_signal"] = 1
+    df.loc[df["avg_close"] < df["avg_vwma"], "vwma_signal"] = -1
+
+    df["rvi"] = df["close"].pct_change().rolling(rvi_period).std()
+    mean_rvi = df["rvi"].mean()
+    df["rvi_signal"] = df["rvi"].apply(lambda x: 1 if x > mean_rvi else -1)
+
+    df["vp_node"] = df["close"].rolling(vp_window).apply(
+        lambda x: x.value_counts().idxmax() if len(x) > 0 else 0, raw=False
+    )
+
+    # ---- Last row for signal ----
+    last = df.iloc[-1]
+    adx, atr, close = last["adx"], last["atr"], last["close"]
+    vwma_sig, rvi_sig = last["vwma_signal"], last["rvi_signal"]
+    vp_ok = close > last["vp_node"]
+
+    signal, entry, sl, tp, size = "neutral", None, None, None, None
+    if pd.notna(adx) and pd.notna(atr) and adx > adx_thresh:
+        ind_sig = vwma_sig
+        extra_confirmation = (rvi_sig == ind_sig) or vp_ok
+        if ind_sig != 0 and extra_confirmation:
+            side = "buy" if ind_sig == 1 else "sell"
+            entry = close
+            sl = entry - atr_mult_sl * atr if side == "buy" else entry + atr_mult_sl * atr
+            tp = entry + atr_mult_tp * atr if side == "buy" else entry - atr_mult_tp * atr
+            risk_capital = 1000 * risk_fraction  # assume equity 1000 (can be dynamic later)
+            size = risk_capital / (atr_mult_sl * atr) if atr > 0 else 0
+            signal = side
+
+    result = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "signal": signal,
+        "entry": entry,
+        "stop_loss": sl,
+        "take_profit": tp,
+        "size": size,
+        "adx": adx,
+        "atr": atr,
+        "vwma_sig": vwma_sig,
+        "rvi_sig": rvi_sig,
+        "vp_ok": vp_ok
+    }
+
+    # ---- Append to signal.csv ----
+    with open("signal.csv", "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=result.keys())
+        if f.tell() == 0:  # write header if file is empty
+            writer.writeheader()
+        writer.writerow(result)
+
+    return result

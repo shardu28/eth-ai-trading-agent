@@ -20,7 +20,7 @@ LEVERAGE = 20.0
 
 # Tweaked strategy params
 ATR_MULT_SL = 1.5
-ATR_MULT_TP = 3.0
+ATR_MULT_TP = 3.5
 ADX_THRESH = 30
 AVG_WINDOW = 5
 VP_WINDOW = 50

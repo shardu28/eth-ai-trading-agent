@@ -4,7 +4,7 @@
 DELTA_BASE_URL = "https://api.india.delta.exchange"
 
 # Product symbol for ETH perpetuals
-PRODUCT_SYMBOL = "ETHUSD"
+PRODUCT_SYMBOL = "SOLUSD"
 
 # Default candle resolution
 CANDLE_RES = "1h"

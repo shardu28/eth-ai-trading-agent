@@ -21,11 +21,11 @@ LEVERAGE = 20.0
 
 # new params according to your last message
 ATR_MULT_SL = 1.5
-ATR_MULT_TP = 3.0
-ADX_THRESH = 28
-AVG_WINDOW = 7
-VP_WINDOW = 60
-RVI_PERIOD = 12
+ATR_MULT_TP = 2.5
+ADX_THRESH = 25
+AVG_WINDOW = 5
+VP_WINDOW = 50
+RVI_PERIOD = 10
 RISK_FRACTION = 0.01  # percent of equity risked per trade (1%)
 
 # time window in IST

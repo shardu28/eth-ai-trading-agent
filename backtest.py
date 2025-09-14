@@ -19,7 +19,7 @@ START_EQUITY = 100.0
 LEVERAGE = 20.0
 
 # Tweaked strategy params
-ATR_MULT_SL = 1.5
+ATR_MULT_SL = 1.2
 ATR_MULT_TP = 3.5
 ADX_THRESH = 30
 AVG_WINDOW = 5

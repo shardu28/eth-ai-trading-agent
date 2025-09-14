@@ -20,12 +20,12 @@ START_EQUITY = 100.0
 LEVERAGE = 20.0
 
 # new params according to your last message
-ATR_MULT_SL = 1.8
-ATR_MULT_TP = 2.2
-ADX_THRESH = 22
+ATR_MULT_SL = 1.5
+ATR_MULT_TP = 3.0
+ADX_THRESH = 28
 AVG_WINDOW = 7
-VP_WINDOW = 45
-RVI_PERIOD = 8
+VP_WINDOW = 60
+RVI_PERIOD = 12
 RISK_FRACTION = 0.01  # percent of equity risked per trade (1%)
 
 # time window in IST

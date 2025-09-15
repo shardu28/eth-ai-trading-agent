@@ -84,7 +84,7 @@ def run_backtest():
     start_ts = end_ts - DAYS * 24 * 3600
 
     print(f"Fetching {DAYS} days of 1H candles for {PRODUCT_SYMBOL}...")
-    candles = fetch_chunked_candles(client, PRODUCT_SYMBOL, "1h", start_ts, end_ts)
+    candles = fetch_chunked_candles(client, PRODUCT_SYMBOL, "4h", start_ts, end_ts)
     if not candles:
         raise RuntimeError("No candle data returned from API")
 

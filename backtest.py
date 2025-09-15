@@ -32,7 +32,7 @@ SESSION_START_IST = 10   # 10:00 IST
 SESSION_END_IST = 23     # 23:00 IST
 
 # Volatility filter
-ATR_PCT_MIN = 0.005  # 0.5%
+ATR_PCT_MIN = 0.002  # 0.5%
 
 # API chunking
 CHUNK_DAYS = 90

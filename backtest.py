@@ -25,14 +25,14 @@ ADX_THRESH = 29
 AVG_WINDOW = 5
 VP_WINDOW = 50
 RVI_PERIOD = 10
-RISK_FRACTION = 0.05  # 1% risk
+RISK_FRACTION = 0.02  # 1% risk
 
 # Session filter (IST)
 SESSION_START_IST = 10   # 10:00 IST
 SESSION_END_IST = 23     # 23:00 IST
 
 # Volatility filter
-ATR_PCT_MIN = 0.002  # 0.5%
+ATR_PCT_MIN = 0.005  # 0.5%
 
 # API chunking
 CHUNK_DAYS = 90

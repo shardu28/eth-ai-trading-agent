@@ -28,7 +28,7 @@ RVI_PERIOD = 10
 RISK_FRACTION = 0.01  # 1% risk
 
 # Session filter (IST)
-SESSION_START_IST = 06   # 10:00 IST
+SESSION_START_IST = 6   # 10:00 IST
 SESSION_END_IST = 23     # 23:00 IST
 
 # Volatility filter

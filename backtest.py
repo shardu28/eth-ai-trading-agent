@@ -21,14 +21,14 @@ LEVERAGE = 20.0
 # Tweaked strategy params
 ATR_MULT_SL = 1.3
 ATR_MULT_TP = 3.7
-ADX_THRESH = 29
+ADX_THRESH = 25
 AVG_WINDOW = 5
 VP_WINDOW = 50
 RVI_PERIOD = 10
 RISK_FRACTION = 0.01  # 1% risk
 
 # Session filter (IST)
-SESSION_START_IST = 10   # 10:00 IST
+SESSION_START_IST = 06   # 10:00 IST
 SESSION_END_IST = 23     # 23:00 IST
 
 # Volatility filter

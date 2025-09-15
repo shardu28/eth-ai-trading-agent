@@ -21,14 +21,14 @@ LEVERAGE = 20.0
 # Tweaked strategy params
 ATR_MULT_SL = 1.3
 ATR_MULT_TP = 3.7
-ADX_THRESH = 5
-AVG_WINDOW = 4
-VP_WINDOW = 45
-RVI_PERIOD = 5
-RISK_FRACTION = 0.01  # 1% risk
+ADX_THRESH = 29
+AVG_WINDOW = 5
+VP_WINDOW = 50
+RVI_PERIOD = 10
+RISK_FRACTION = 0.10  # 1% risk
 
 # Session filter (IST)
-SESSION_START_IST = 6   # 10:00 IST
+SESSION_START_IST = 10   # 10:00 IST
 SESSION_END_IST = 23     # 23:00 IST
 
 # Volatility filter
@@ -84,7 +84,7 @@ def run_backtest():
     start_ts = end_ts - DAYS * 24 * 3600
 
     print(f"Fetching {DAYS} days of 1H candles for {PRODUCT_SYMBOL}...")
-    candles = fetch_chunked_candles(client, PRODUCT_SYMBOL, "4h", start_ts, end_ts)
+    candles = fetch_chunked_candles(client, PRODUCT_SYMBOL, "1h", start_ts, end_ts)
     if not candles:
         raise RuntimeError("No candle data returned from API")
 

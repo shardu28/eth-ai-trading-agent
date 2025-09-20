@@ -39,6 +39,26 @@ def roc(series, n):
         out[i] = (series[i] - prev) / prev if prev else None
     return out
 
+# ---- Backtest-identical indicator helpers ----
+def compute_avg_vwma(series_close, series_volume, window):
+    num = (series_close * series_volume).rolling(window=window, min_periods=1).sum()
+    den = series_volume.rolling(window=window, min_periods=1).sum()
+    return num / den
+
+def compute_vp_node(series_close, window, precision=2):
+    def vp_mode(x):
+        if len(x) == 0:
+            return float("nan")
+        rounded = (x.round(precision)).astype(str)
+        return float(pd.Series(rounded).mode().iloc[0])
+    return series_close.rolling(window=window, min_periods=1).apply(lambda x: vp_mode(x), raw=False)
+
+def rvi_approx(series_close, series_open, series_high, series_low, period):
+    num = (series_close - series_open).rolling(window=period, min_periods=1).mean()
+    den = (series_high - series_low).rolling(window=period, min_periods=1).mean().abs() + 1e-9
+    rvi = num / den
+    return 50.0 * (1 + rvi.clip(-1, 1))
+
 # ---- Indicator Calculations ----
 def compute_indicators(df,
                        atr_mult_sl=1.3, atr_mult_tp=3.7, adx_thresh=29,
@@ -51,23 +71,20 @@ def compute_indicators(df,
         high=df["high"], low=df["low"], close=df["close"], window=14
     ).adx()
 
-    # Averaged VWMA vs close
-    df["avg_close"] = df["close"].rolling(window=avg_window).mean()
-    df["avg_vwma"] = (df["close"] * df["volume"]).rolling(window=avg_window).sum() / \
-                     df["volume"].rolling(window=avg_window).sum()
+    # VWMA vs close
+    df["avg_close"] = df["close"].rolling(window=avg_window, min_periods=1).mean()
+    df["avg_vwma"] = compute_avg_vwma(df["close"], df["volume"], avg_window)
     df["vwma_signal"] = 0
     df.loc[df["avg_close"] > df["avg_vwma"], "vwma_signal"] = 1
     df.loc[df["avg_close"] < df["avg_vwma"], "vwma_signal"] = -1
 
-    # RVI approximation
-    df["rvi"] = df["close"].pct_change().rolling(rvi_period).std()
+    # RVI identical to backtest
+    df["rvi"] = rvi_approx(df["close"], df["open"], df["high"], df["low"], rvi_period)
     mean_rvi = df["rvi"].mean()
     df["rvi_signal"] = df["rvi"].apply(lambda x: 1 if x > mean_rvi else -1)
 
-    # Volume profile node (dominant close in rolling window)
-    df["vp_node"] = df["close"].rolling(vp_window).apply(
-        lambda x: x.value_counts().idxmax() if len(x) > 0 else 0, raw=False
-    )
+    # Volume profile node
+    df["vp_node"] = compute_vp_node(df["close"], vp_window)
 
     return df
                            
@@ -102,7 +119,7 @@ def generate_signal(candles_csv="candles.csv",
     adx, atr, close = last["adx"], last["atr"], last["close"]
     vwma_sig, rvi_sig = last["vwma_signal"], last["rvi_signal"]
 
-    # Match backtest logic: VP confirmation depends on direction
+    # VP confirmation
     vp_ok = (close > last["vp_node"] if vwma_sig == 1 else close < last["vp_node"])
 
     signal, entry, sl, tp, size = "neutral", None, None, None, None
@@ -114,7 +131,7 @@ def generate_signal(candles_csv="candles.csv",
             entry = close
             sl = entry - atr_mult_sl * atr if side == "buy" else entry + atr_mult_sl * atr
             tp = entry + atr_mult_tp * atr if side == "buy" else entry - atr_mult_tp * atr
-            risk_capital = 1000 * risk_fraction  # assume equity 1000 (can be dynamic later)
+            risk_capital = 1000 * risk_fraction  # fixed equity assumption (can be dynamic later)
             size = risk_capital / (atr_mult_sl * atr) if atr > 0 else 0
             signal = side
 

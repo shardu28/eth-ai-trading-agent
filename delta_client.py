@@ -9,24 +9,12 @@ class DeltaClient:
         self.base_url = DELTA_BASE_URL
 
     def get(self, path, params=None, timeout=(5, 30)):
+        """
+        Perform GET request to Delta API.
+        Example: client.get("/history/candles", {...})
+        """
         # Always prefix with /v2
         url = f"{self.base_url}/v2{path}"
         r = requests.get(url, params=params, headers=UA, timeout=timeout)
         r.raise_for_status()
         return r.json()
-
-    def get_candles(self, symbol, resolution, start, end):
-        return self.get("/history/candles", {
-            "symbol": symbol,
-            "resolution": resolution,
-            "start": start,
-            "end": end,
-        })
-
-    def get_funding(self, symbol, resolution, start, end):
-        return self.get("/history/candles", {
-            "symbol": f"FUNDING:{symbol}",
-            "resolution": resolution,
-            "start": start,
-            "end": end,
-        })

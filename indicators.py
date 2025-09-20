@@ -59,6 +59,14 @@ def rvi_approx(series_close, series_open, series_high, series_low, period):
     rvi = num / den
     return 50.0 * (1 + rvi.clip(-1, 1))
 
+# ---- Dynamic Equity Helper ----
+def get_latest_equity(tradebook_csv="tradebook.csv", default_equity=100.0):
+    if os.path.exists(tradebook_csv):
+        df = pd.read_csv(tradebook_csv)
+        if not df.empty and "equity" in df.columns:
+            return float(df["equity"].iloc[-1])
+    return default_equity
+
 # ---- Indicator Calculations ----
 def compute_indicators(df,
                        atr_mult_sl=1.3, atr_mult_tp=3.7, adx_thresh=29,
@@ -131,7 +139,10 @@ def generate_signal(candles_csv="candles.csv",
             entry = close
             sl = entry - atr_mult_sl * atr if side == "buy" else entry + atr_mult_sl * atr
             tp = entry + atr_mult_tp * atr if side == "buy" else entry - atr_mult_tp * atr
-            risk_capital = 1000 * risk_fraction  # fixed equity assumption (can be dynamic later)
+
+            # 🔑 Dynamic equity from tradebook
+            equity = get_latest_equity()
+            risk_capital = equity * risk_fraction  # fixed equity assumption (can be dynamic later)
             size = risk_capital / (atr_mult_sl * atr) if atr > 0 else 0
             signal = side
 

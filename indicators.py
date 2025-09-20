@@ -41,7 +41,7 @@ def roc(series, n):
 
 # ---- Indicator Calculations ----
 def compute_indicators(df,
-                       atr_mult_sl=1.5, atr_mult_tp=2.5, adx_thresh=25,
+                       atr_mult_sl=1.3, atr_mult_tp=3.7, adx_thresh=29,
                        avg_window=5, vp_window=50, rvi_period=10):
     # ATR & ADX
     df["atr"] = ta.volatility.AverageTrueRange(
@@ -72,10 +72,10 @@ def compute_indicators(df,
     return df
                            
 def generate_signal(candles_csv="candles.csv",
-                    atr_mult_sl=1.5, atr_mult_tp=2.5,
-                    adx_thresh=25, avg_window=5,
+                    atr_mult_sl=1.3, atr_mult_tp=3.7,
+                    adx_thresh=29, avg_window=5,
                     vp_window=50, rvi_period=10,
-                    risk_fraction=0.01):
+                    risk_fraction=0.02):
     """
     Reads candles.csv, computes indicators, and generates final trading signal.
     Returns dict with signal, entry, TP, SL, and size.

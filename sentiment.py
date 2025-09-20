@@ -5,12 +5,12 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 from delta_client import DeltaClient
 from candles import fetch_and_save_candles  # your candles.py provides this
+from config import PRODUCT_SYMBOL, CANDLE_RESOLUTION  # dynamic import
 
 CANDLES_FILE = "candles.csv"
 SENTIMENT_FILE = "sentiment.csv"
 SENTIMENT_AGG_FILE = "sentiment_agg.json"
 
-PRODUCT_SYMBOL = "ETHUSD"
 L2_DEPTH = 5
 TRADES_LOOKBACK = 200
 
@@ -52,19 +52,30 @@ def ensure_candles():
         print("Fetching 1 month of historical candles...")
         end = int(time.time())
         start = end - 30 * 24 * 3600
-        fetch_and_save_candles(PRODUCT_SYMBOL, "1h", start, end, CANDLES_FILE)
+        fetch_and_save_candles(PRODUCT_SYMBOL, CANDLE_RESOLUTION, start, end, CANDLES_FILE)
 
 def append_new_candle():
-    """Check if a new hourly candle formed, append if needed."""
+    """Check if a new candle formed, append if needed."""
     df = pd.read_csv(CANDLES_FILE, parse_dates=["time_utc"])
     last_ts = df["time_utc"].max().to_pydatetime().replace(tzinfo=timezone.utc)
-    expected_next = last_ts + timedelta(hours=1)
+
+    # infer candle duration from resolution
+    if CANDLE_RESOLUTION.endswith("h"):
+        hours = int(CANDLE_RESOLUTION[:-1])
+        step = timedelta(hours=hours)
+    elif CANDLE_RESOLUTION.endswith("m"):
+        mins = int(CANDLE_RESOLUTION[:-1])
+        step = timedelta(minutes=mins)
+    else:
+        step = timedelta(hours=1)  # fallback
+
+    expected_next = last_ts + step
     now = datetime.now(timezone.utc)
 
     if now >= expected_next + timedelta(minutes=5):  # allow API to finalize
         raw = client.get("/history/candles", {
             "symbol": PRODUCT_SYMBOL,
-            "resolution": "1h",
+            "resolution": CANDLE_RESOLUTION,
             "start": int(expected_next.timestamp()),
             "end": int(now.timestamp())
         })

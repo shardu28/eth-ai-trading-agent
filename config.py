@@ -7,7 +7,7 @@ DELTA_BASE_URL = "https://api.india.delta.exchange"
 PRODUCT_SYMBOL = "SOLUSD"
 
 # Default candle resolution
-CANDLE_RES = "1h"
+CANDLE_RESOLUTION = "1h"
 
 # Risk settings
 FIXED_USD_RISK = 10.0   # how much you risk per trade

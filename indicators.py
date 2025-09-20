@@ -109,9 +109,15 @@ def generate_signal(candles_csv="candles.csv",
 
     # ---- Load candles ----
     df = pd.read_csv(candles_csv)
+ # normalize time column (accept either time or time_utc)
+    if "time" not in df.columns and "time_utc" in df.columns:
+        df = df.rename(columns={"time_utc": "time"})
+        
     df["time"] = pd.to_datetime(df["time"], utc=True)
+                        
     for col in ["open", "high", "low", "close", "volume"]:
         df[col] = df[col].astype(float)
+
 
     # ---- Compute indicators ----
     df = compute_indicators(df,

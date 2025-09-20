@@ -1,4 +1,3 @@
-# main.py
 import os
 import pandas as pd
 from datetime import datetime
@@ -6,19 +5,10 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-from indicators import generate_signal
+from indicators import generate_signal, get_latest_equity
 from sentiment import get_latest_sentiment  # <- ensure this function exists in sentiment.py
 
 # --- Config ---
-START_EQUITY = 1000
-ADX_THRESH = 25
-ATR_MULT_SL = 1.5
-ATR_MULT_TP = 2.5
-AVG_WINDOW = 5
-VP_WINDOW = 50
-RVI_PERIOD = 10
-RISK_FRACTION = 0.01
-
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 TO_EMAIL = "your_target_email@example.com"  # <-- set recipient
@@ -28,11 +18,8 @@ TRADEBOOK_FILE = "tradebook.csv"
 
 # --- Helpers for Equity/Tradebook ---
 def load_equity():
-    if os.path.exists(TRADEBOOK_FILE):
-        df = pd.read_csv(TRADEBOOK_FILE)
-        if not df.empty and "equity_after" in df.columns:
-            return float(df["equity_after"].iloc[-1])
-    return START_EQUITY
+    # 🔑 Use same helper as indicators.py to keep consistency
+    return get_latest_equity(tradebook_csv=TRADEBOOK_FILE, default_equity=100.0)
 
 
 def update_tradebook(trade_decision, ind_signal, sentiment_score, equity):
@@ -139,13 +126,8 @@ if __name__ == "__main__":
 
     equity = load_equity()
 
-    ind_signal = generate_signal(
-        candles_csv="candles.csv",
-        atr_mult_sl=ATR_MULT_SL, atr_mult_tp=ATR_MULT_TP,
-        adx_thresh=ADX_THRESH, avg_window=AVG_WINDOW,
-        vp_window=VP_WINDOW, rvi_period=RVI_PERIOD,
-        risk_fraction=RISK_FRACTION
-    )
+    # 🔑 No more hardcoded indicator params; use defaults from indicators.py
+    ind_signal = generate_signal(candles_csv="candles.csv")
 
     sentiment_score = get_latest_sentiment("sentiment.csv")
 

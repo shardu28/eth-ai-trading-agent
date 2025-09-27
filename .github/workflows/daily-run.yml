@@ -5,6 +5,9 @@ on:
     - cron: "0 6 * * *"   # every day at 06:00 UTC (~11:30 IST)
   workflow_dispatch:       # allow manual run
 
+permissions:
+  contents: write   # 👈 allow push access for github-actions[bot]
+
 jobs:
   backtest:
     runs-on: ubuntu-latest

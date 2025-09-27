@@ -31,7 +31,62 @@ def load_existing(path):
     if os.path.exists(path):
         return pd.read_csv(path)
     return pd.DataFrame()
+    
+def is_first_run_today():
+    """Return True if current time is around 8:00 AM IST (first run of the day)."""
+    now_ist = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30)))
+    return now_ist.hour == 8 and now_ist.minute < 15  # run audit only in 8:00–8:15 window
+    
+def audit_midnight_candles():
+    """
+    Ensure that candles.csv contains the overnight candles up to 7:00 AM IST.
+    This acts as a fallback in case midnight_candles.py failed or was delayed.
+    """
+    if not os.path.exists(CANDLES_FILE):
+        print("❌ candles.csv not found, cannot audit midnight candles.")
+        return
 
+    df = pd.read_csv(CANDLES_FILE, parse_dates=["time_utc"])
+    if df.empty:
+        print("❌ candles.csv is empty, fetching fresh history...")
+        # Fallback: fetch last 30 days (same as ensure_candles)
+        end = int(time.time())
+        start = end - 30 * 24 * 3600
+        fetch_and_save_candles(PRODUCT_SYMBOL, CANDLE_RESOLUTION, start, end, CANDLES_FILE)
+        return
+
+    last_ts = df["time_utc"].max()
+
+    # Convert last_ts to IST
+    last_ts_ist = last_ts.tz_convert("Asia/Kolkata")
+
+    # Build today's expected 7:00 AM IST candle close time
+    today = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30))).date()
+    expected_7am_ist = datetime.combine(today, datetime.min.time()).replace(hour=7, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+
+    if last_ts_ist >= expected_7am_ist:
+        print(f"✅ Audit: candles.csv already has data up to {last_ts_ist.strftime('%Y-%m-%d %H:%M %Z')}")
+    else:
+        print(f"⚠️ Audit: candles.csv missing overnight candles. Fetching from midnight to 7 AM IST...")
+        start = int(last_ts.timestamp()) + 1
+        end = int(expected_7am_ist.astimezone(timezone.utc).timestamp())
+        raw = client.get("/history/candles", {
+            "symbol": PRODUCT_SYMBOL,
+            "resolution": CANDLE_RESOLUTION,
+            "start": start,
+            "end": end
+        })
+        rows = raw.get("result", [])
+        if rows:
+            new = pd.DataFrame(rows)
+            new["time_utc"] = pd.to_datetime(new["time"], unit="s", utc=True)
+            new = new[["time_utc", "open", "high", "low", "close", "volume"]]
+            df = pd.concat([df, new]).drop_duplicates(subset=["time_utc"]).sort_values("time_utc")
+            atomic_write(df, CANDLES_FILE)
+            print(f"✅ Audit: appended {len(new)} overnight candles.")
+        else:
+            print("⚠️ Audit: no overnight candles returned from API.")
+            
 def fetch_l2_sentiment(symbol=PRODUCT_SYMBOL, depth=L2_DEPTH):
     ob = client.get("/l2orderbook", {"symbol": symbol, "depth": depth})
     bids = sum([b["size"] for b in ob["buy_levels"]])
@@ -89,6 +144,9 @@ def append_new_candle():
             print(f"Appended {len(new)} new candles.")
 
 def run_sentiment():
+    if is_first_run_today():
+    audit_midnight_candles() # only on first run of the day
+        
     ensure_candles()
     append_new_candle()
 

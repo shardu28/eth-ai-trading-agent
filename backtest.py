@@ -15,7 +15,7 @@ EQUITY_CURVE_IMG = "equity_curve.png"
 
 # ----------------- Fixed Backtest Params -----------------
 DAYS = 365          # 1 year
-START_EQUITY = 100.0
+START_EQUITY = 568.0
 LEVERAGE = 20.0
 
 # Tweaked strategy params

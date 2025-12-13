@@ -17,6 +17,7 @@ EQUITY_CURVE_IMG = "equity_curve.png"
 DAYS = 365          # 1 year
 START_EQUITY = 100.0
 LEVERAGE = 20.0
+ROUND_TRIP_FEE = 0.001  # 0.1% total fee per completed trade
 
 # Tweaked strategy params
 ATR_MULT_SL = 1.3
@@ -135,7 +136,11 @@ def run_backtest():
                 if close <= tp: exit_price, result = tp, "tp"
                 elif close >= sl: exit_price, result = sl, "sl"
             if result:
-                pnl = (exit_price - entry) * size if side == "buy" else (entry - exit_price) * size
+                gross_pnl = (exit_price - entry) * size if side == "buy" else (entry - exit_price) * size
+                notional = exit_price * size
+                fees = ROUND_TRIP_FEE * notional
+                pnl = gross_pnl - fees
+                
                 equity += pnl
                 trades[-1][3] = exit_price
                 trades[-1][4] = result

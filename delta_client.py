@@ -18,16 +18,10 @@ class DeltaClient:
             self.api_key = None
             self.api_secret = None
 
-    def _signed_get(self, path, params=None, timeout=(5, 30)):
-        if not self.api_key or not self.api_secret:
-            raise RuntimeError("API key/secret not set for private endpoint")
+    def _signed_get(self, path, timeout=(5, 30)):
+        timestamp = str(int(time.time()))
+        message = timestamp + "GET" + f"/v2{path}"
 
-        ts = str(int(time.time() * 1000))
-        query = ""
-        if params:
-            query = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
-
-        message = ts + "GET" + f"/v2{path}" + query
         signature = hmac.new(
             self.api_secret.encode(),
             message.encode(),
@@ -35,14 +29,14 @@ class DeltaClient:
         ).hexdigest()
 
         headers = {
-            "User-Agent": UA["User-Agent"],
             "api-key": self.api_key,
-            "timestamp": ts,
+            "timestamp": timestamp,
             "signature": signature,
+            **UA
         }
 
         url = f"{self.base_url}/v2{path}"
-        r = requests.get(url, params=params, headers=headers, timeout=timeout)
+        r = requests.get(url, headers=headers, timeout=timeout)
         r.raise_for_status()
         return r.json()
 

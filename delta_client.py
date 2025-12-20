@@ -7,6 +7,7 @@ import requests
 from config import DELTA_BASE_URL
 
 UA = {"User-Agent": "python-backtest-client"}
+ENABLE_PRIVATE_API = False
 
 class DeltaClient:
     def __init__(self):
@@ -19,6 +20,9 @@ class DeltaClient:
             self.api_secret = None
 
     def _signed_get(self, path, timeout=(5, 30)):
+        if not ENABLE_PRIVATE_API:
+            raise RuntimeError("Private API disabled (IP whitelist not configured)")
+        return self._signed_get("/wallet/balances")
         timestamp = str(int(time.time()))
         message = timestamp + "GET" + f"/v2{path}"
 

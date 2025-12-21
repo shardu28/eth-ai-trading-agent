@@ -109,39 +109,62 @@ def ensure_candles():
         start = end - 30 * 24 * 3600
         fetch_and_save_candles(PRODUCT_SYMBOL, CANDLE_RESOLUTION, start, end, CANDLES_FILE)
 
-def append_new_candle():
-    """Check if a new candle formed, append if needed."""
+def append_new_candle(client):
     df = pd.read_csv(CANDLES_FILE, parse_dates=["time_utc"])
+
+    if df.empty:
+        print("Candles file empty. Skipping append.")
+        return
+
     last_ts = df["time_utc"].max().to_pydatetime().replace(tzinfo=timezone.utc)
 
-    # infer candle duration from resolution
     if CANDLE_RESOLUTION.endswith("h"):
-        hours = int(CANDLE_RESOLUTION[:-1])
-        step = timedelta(hours=hours)
+        step = timedelta(hours=int(CANDLE_RESOLUTION[:-1]))
     elif CANDLE_RESOLUTION.endswith("m"):
-        mins = int(CANDLE_RESOLUTION[:-1])
-        step = timedelta(minutes=mins)
+        step = timedelta(minutes=int(CANDLE_RESOLUTION[:-1]))
     else:
-        step = timedelta(hours=1)  # fallback
+        step = timedelta(hours=1)
 
     expected_next = last_ts + step
     now = datetime.now(timezone.utc)
 
-    if now >= expected_next + timedelta(minutes=5):  # allow API to finalize
-        raw = client.get("/history/candles", {
-            "symbol": PRODUCT_SYMBOL,
-            "resolution": CANDLE_RESOLUTION,
-            "start": int(expected_next.timestamp()),
-            "end": int(now.timestamp())
-        })
-        rows = raw.get("result", [])
-        if rows:
-            new = pd.DataFrame(rows)
-            new["time_utc"] = pd.to_datetime(new["time"], unit="s", utc=True)
-            new = new[["time_utc", "open", "high", "low", "close", "volume"]]
-            df = pd.concat([df, new]).drop_duplicates(subset=["time_utc"]).sort_values("time_utc")
-            atomic_write(df, CANDLES_FILE)
-            print(f"Appended {len(new)} new candles.")
+    if now < expected_next + timedelta(minutes=5):
+        print("No finalized candle yet.")
+        return
+
+    raw = client.get("/history/candles", {
+        "symbol": PRODUCT_SYMBOL,
+        "resolution": CANDLE_RESOLUTION,
+        "start": int(expected_next.timestamp()),
+        "end": int(now.timestamp())
+    })
+
+    rows = raw.get("result", [])
+    if not rows:
+        print("No new candles returned by API.")
+        return
+
+    new = pd.DataFrame(rows)
+    new["time_utc"] = pd.to_datetime(new["time"], unit="s", utc=True)
+    new = new[["time_utc", "open", "high", "low", "close", "volume"]]
+
+    for c in ["open", "high", "low", "close", "volume"]:
+        new[c] = new[c].astype(float)
+
+    new = new[new["time_utc"] > last_ts]
+
+    if new.empty:
+        print("No strictly new candles after filtering.")
+        return
+
+    df = (
+        pd.concat([df, new])
+        .drop_duplicates(subset=["time_utc"])
+        .sort_values("time_utc")
+    )
+
+    atomic_write(df, CANDLES_FILE)
+    print(f"Appended {len(new)} new candles.")
 
 def run_sentiment():
     if is_first_run_today():

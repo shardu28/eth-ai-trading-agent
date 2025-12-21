@@ -19,6 +19,19 @@ def assert_true(condition, message):
 
 # -------------------- Tests --------------------
 def test_append_24h_behavior(runs=24):
+    if not os.path.exists(CANDLES_FILE):
+        print("⚠️ candles.csv missing, bootstrapping historical data")
+        end = int(datetime.now(timezone.utc).timestamp())
+        start = end - 365 * 24 * 3600
+
+        fetch_and_save_candles(
+            PRODUCT_SYMBOL,
+            CANDLE_RESOLUTION,
+            start,
+            end,
+            CANDLES_FILE
+        )
+
     print("🧪 Test 1: 24-run append behavior")
 
     assert_true(os.path.exists(CANDLES_FILE), "candles.csv does not exist")

@@ -6,8 +6,10 @@ from datetime import datetime, timezone
 from candles import fetch_and_save_candles
 from sentiment import append_new_candle
 from config import PRODUCT_SYMBOL, CANDLE_RESOLUTION
+from delta_client import DeltaClient
 
 CANDLES_FILE = "candles.csv"
+client = DeltaClient()
 
 def assert_true(condition, message):
     if not condition:
@@ -41,7 +43,7 @@ def test_append_behavior(df_before):
     rows_before = len(df_before)
     last_ts_before = df_before["time_utc"].max()
 
-    append_new_candle()
+    append_new_candle(client)
 
     df_after = pd.read_csv(CANDLES_FILE, parse_dates=["time_utc"])
     rows_after = len(df_after)

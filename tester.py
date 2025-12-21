@@ -67,7 +67,9 @@ def test_data_integrity(df):
 
     assert_true((df["high"] >= df[["open", "close"]].max(axis=1)).all(), "Invalid high price")
     assert_true((df["low"] <= df[["open", "close"]].min(axis=1)).all(), "Invalid low price")
-    assert_true((df["volume"] > 0).all(), "Invalid volume detected")
+    assert_true((df["volume"] >= 0).all(), "Negative volume detected")
+    if (df["volume"] == 0).any():
+    print("⚠️ Warning: Zero-volume candles detected (expected in low-liquidity hours)")
 
     assert_true(
         df["time_utc"].diff().dropna().min().total_seconds() >= 3600,

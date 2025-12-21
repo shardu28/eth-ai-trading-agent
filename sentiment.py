@@ -168,7 +168,7 @@ def append_new_candle(client):
 
 def run_sentiment():
     if is_first_run_today():
-    audit_midnight_candles() # only on first run of the day
+        audit_midnight_candles() # only on first run of the day
         
     ensure_candles()
     append_new_candle()

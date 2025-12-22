@@ -41,15 +41,17 @@ jobs:
         run: |
           if [ -f candles.csv ]; then
             git status
-            if ! git diff --quiet; then
-              git config user.name "github-actions"
-              git config user.email "github-actions@github.com"
-              git add candles.csv
-              git commit -m "Update candles.csv [hourly]"
+
+            # Stage candles.csv whether new or modified
+            git add candles.csv
+
+            # Commit only if there is something staged
+            if ! git diff --cached --quiet; then
+              git commit -m "Update candles.csv [hourly sandbox]"
               git push
             else
               echo "No changes in candles.csv"
-          fi
+            fi
           else
             echo "candles.csv not found, nothing to commit"
           fi

@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "0 * * * *"   # runs every hour (UTC)
 
+permissions:
+  contents: write   # REQUIRED to push candles.csv back to repo
+
 concurrency:
   group: candles-hourly
   cancel-in-progress: true
@@ -14,7 +17,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -27,3 +31,25 @@ jobs:
 
       - name: Run candles tester
         run: python tester.py
+
+      - name: Configure git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit candles.csv if updated
+        run: |
+          if [ -f candles.csv ]; then
+            git status
+            if ! git diff --quiet; then
+              git config user.name "github-actions"
+              git config user.email "github-actions@github.com"
+              git add candles.csv
+              git commit -m "Update candles.csv [hourly]"
+              git push
+            else
+              echo "No changes in candles.csv"
+          fi
+          else
+            echo "candles.csv not found, nothing to commit"
+          fi

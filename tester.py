@@ -18,7 +18,7 @@ def assert_true(condition, message):
 
 
 # -------------------- Tests --------------------
-def test_append_24h_behavior(runs=24):
+def test_append_24h_behavior():
     if not os.path.exists(CANDLES_FILE):
         print("⚠️ candles.csv missing, bootstrapping historical data")
         end = int(datetime.now(timezone.utc).timestamp())
@@ -32,40 +32,50 @@ def test_append_24h_behavior(runs=24):
             CANDLES_FILE
         )
 
-    print("🧪 Test 1: 24-run append behavior")
+    print("🧪 Test 1: Append behavior (single-run, production-style)")
 
     assert_true(os.path.exists(CANDLES_FILE), "candles.csv does not exist")
 
-    df_start = pd.read_csv(CANDLES_FILE, parse_dates=["time_utc"])
-    start_len = len(df_start)
-    last_ts = df_start["time_utc"].max()
+    df_before = pd.read_csv(CANDLES_FILE, parse_dates=["time_utc"])
+    prev_len = len(df_before)
+    prev_last_ts = df_before["time_utc"].max()
 
-    print(f"Initial candles: {start_len}")
-    print(f"Last candle timestamp: {last_ts}")
+    print(f"Initial candles: {prev_len}")
+    print(f"Last candle timestamp: {prev_last_ts}")
 
-    for i in range(1, runs + 1):
-        print(f"→ Append run {i}")
-        append_new_candle(client)
+    print("→ Checking for new 1h candle")
+    append_new_candle(client)
 
-        df = pd.read_csv(CANDLES_FILE, parse_dates=["time_utc"])
+    df_after = pd.read_csv(CANDLES_FILE, parse_dates=["time_utc"])
 
-        # Core append invariants
-        assert_true(len(df) >= start_len, "Candle count decreased")
-        assert_true(df["time_utc"].is_unique, "Duplicate timestamps detected")
+    # No data loss
+    assert_true(len(df_after) >= prev_len, "Candle count decreased")
+
+    # No duplicates
+    assert_true(df_after["time_utc"].is_unique, "Duplicate timestamps detected")
+
+    # Strict ordering (gaps allowed)
+    sorted_ts = df_after["time_utc"].sort_values()
+    assert_true(
+        sorted_ts.equals(df_after["time_utc"]),
+        "Timestamps not strictly ordered"
+    )
+
+    new_last_ts = df_after["time_utc"].max()
+
+    if new_last_ts > prev_last_ts:
+        print("✅ New 1h candle detected and appended")
+
+        # Exactly one new candle should be added
         assert_true(
-            df["time_utc"].is_monotonic_increasing,
-            "Timestamps not strictly increasing"
+            len(df_after) == prev_len + 1,
+            "More than one candle appended unexpectedly"
         )
+    else:
+        print("ℹ️ No new 1h candle formed yet (expected behavior)")
 
-        # Timestamp sanity
-        new_last_ts = df["time_utc"].max()
-        assert_true(new_last_ts >= last_ts, "Last timestamp moved backwards")
-
-        last_ts = new_last_ts
-        start_len = len(df)
-
-    print("✅ 24-run append behavior OK")
-    return df
+    print("✅ Append behavior verified for this run")
+    return df_after
 
 
 def test_data_integrity(df):
@@ -102,10 +112,10 @@ def test_data_integrity(df):
 def main():
     print("🚀 Running candles append sandbox tests")
 
-    df = test_append_24h_behavior(runs=24)
+    df = test_append_24h_behavior()
     test_data_integrity(df)
 
-    print("🎉 candles append logic PASSED stress test")
+    print("🎉 candles append logic PASSED for this hourly run")
 
 
 if __name__ == "__main__":

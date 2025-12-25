@@ -171,7 +171,7 @@ def run_sentiment():
         audit_midnight_candles() # only on first run of the day
         
     ensure_candles()
-    append_new_candle()
+    append_new_candle(client)
 
     run_time_utc = datetime.now(timezone.utc)
     run_time_ist = run_time_utc.astimezone(timezone(timedelta(hours=5, minutes=30)))

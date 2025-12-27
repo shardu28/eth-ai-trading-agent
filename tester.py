@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timezone
 
 from candles import fetch_and_save_candles
-from sentiment import append_new_candle
+from candles import append_new_candle
 from config import PRODUCT_SYMBOL, CANDLE_RESOLUTION
 from delta_client import DeltaClient
 

@@ -107,8 +107,9 @@ def append_new_candle(client):
 
     new = pd.DataFrame(rows)
     new["time_utc"] = pd.to_datetime(new["time"], unit="s", utc=True)
-    new = new[["time_utc", "open", "high", "low", "close", "volume"]]
-    new = new.astype(float)
+    for c in ["open", "high", "low", "close", "volume"]:
+        new[c] = new[c].astype(float)
+
     new = new[new["time_utc"] > last_ts]
 
     if new.empty:

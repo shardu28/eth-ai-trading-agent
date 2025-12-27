@@ -3,7 +3,7 @@ name: Candles Hourly Sandbox Test
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 * * * *"   # runs every hour (UTC)
+    - cron: "50 * * * *"   # runs every hour (UTC)
 
 permissions:
   contents: write   # REQUIRED to push candles.csv back to repo

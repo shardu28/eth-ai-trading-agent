@@ -9,6 +9,8 @@ from config import PRODUCT_SYMBOL, CANDLE_RESOLUTION
 CANDLES_FILE = "candles.csv"
 client = DeltaClient()
 
+EXPECTED_COLUMNS = ["time_utc", "open", "high", "low", "close", "volume"]
+
 # -------------------- Utilities --------------------
 def atomic_write(df, path):
     tmp = path + ".tmp"
@@ -45,7 +47,8 @@ def fetch_and_save_candles(symbol, resolution, start, end, out_file):
 
     df = pd.DataFrame(candles)
     df["time_utc"] = pd.to_datetime(df["time"], unit="s", utc=True)
-    df = df[["time_utc", "open", "high", "low", "close", "volume"]]
+
+    df = df[EXPECTED_COLUMNS]
     df = df.astype({
         "open": float,
         "high": float,
@@ -72,10 +75,18 @@ def ensure_candles():
         )
 
 def append_new_candle(client):
+    if not os.path.exists(CANDLES_FILE):
+        print("candles.csv missing. Running ensure_candles first.")
+        ensure_candles()
+
     df = pd.read_csv(CANDLES_FILE, parse_dates=["time_utc"])
+
     if df.empty:
         print("Candles file empty. Skipping append.")
         return
+
+    # 🔒 Enforce schema immediately (kills legacy column drift)
+    df = df[EXPECTED_COLUMNS]
 
     last_ts = df["time_utc"].max().to_pydatetime().replace(tzinfo=timezone.utc)
 
@@ -107,9 +118,13 @@ def append_new_candle(client):
 
     new = pd.DataFrame(rows)
     new["time_utc"] = pd.to_datetime(new["time"], unit="s", utc=True)
-    for c in ["time_utc", "open", "high", "low", "close", "volume"]:
+
+    new = new[EXPECTED_COLUMNS]
+
+    for c in ["open", "high", "low", "close", "volume"]:
         new[c] = new[c].astype(float)
 
+    # allow multiple missed candles, zero-volume candles allowed
     new = new[new["time_utc"] > last_ts]
 
     if new.empty:
@@ -121,6 +136,9 @@ def append_new_candle(client):
         .drop_duplicates(subset=["time_utc"])
         .sort_values("time_utc")
     )
+
+    # 🔒 Enforce schema again before write (paranoia justified)
+    df = df[EXPECTED_COLUMNS]
 
     atomic_write(df, CANDLES_FILE)
     print(f"Appended {len(new)} new candle(s).")

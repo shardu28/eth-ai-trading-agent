@@ -2,6 +2,7 @@
 
 # Base URL for Delta Exchange India API
 DELTA_BASE_URL = "https://api.india.delta.exchange"
+DELTA_API_GLOBAL = "https://api.delta.exchange/v2"
 
 # Product symbol for ETH perpetuals
 PRODUCT_SYMBOL = "SOLUSD"

@@ -1,0 +1,46 @@
+name: Sentiment 15m Sandbox
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sentiment-15m
+  cancel-in-progress: true
+
+jobs:
+  sentiment:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run sentiment tester
+        run: python sentiment_tester.py
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit sentiment files if changed
+        run: |
+          git status
+          if ! git diff --quiet; then
+            git add sentiment.csv sentiment_agg.json
+            git commit -m "Update sentiment data [15m]"
+            git push
+          else
+            echo "No sentiment changes"
+          fi

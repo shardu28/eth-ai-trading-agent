@@ -5,7 +5,6 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 from delta_client import DeltaClient
 from config import PRODUCT_SYMBOL
-from config import DELTA_API_GLOBAL
 
 SENTIMENT_FILE = "sentiment.csv"
 SENTIMENT_AGG_FILE = "sentiment_agg.json"
@@ -15,7 +14,7 @@ TRADES_LOOKBACK = 200
 ROLLING_WINDOW = 5
 
 client = DeltaClient()
-client_l2 = DeltaClient(base_url=DELTA_API_GLOBAL)
+client_l2 = DeltaClient()
 
 # -------------------- Utilities --------------------
 def atomic_write(df, path):
@@ -30,9 +29,17 @@ def atomic_json(obj, path):
     os.replace(tmp, path)
 
 def load_existing(path):
-    if os.path.exists(path):
-        return pd.read_csv(path, parse_dates=["run_time_utc", "run_time_ist"])
-    return pd.DataFrame()
+    if not os.path.exists(path):
+        return pd.DataFrame()
+
+    try:
+        return pd.read_csv(
+            path,
+            parse_dates=["run_time_utc", "run_time_ist"]
+        )
+    except Exception as e:
+        print(f"⚠️ Failed to load {path}: {e}")
+        return pd.DataFrame()
 
 def now_ist():
     return datetime.now(timezone.utc).astimezone(
@@ -43,10 +50,11 @@ def now_ist():
 
 def fetch_l2_sentiment(symbol=PRODUCT_SYMBOL, depth=L2_DEPTH):
     try:
-        ob = client_l2.get("/l2orderbook", {
-            "symbol": symbol,
-            "depth": depth
-        })
+        ob = client_l2.get(
+            "/l2orderbook", 
+            {"symbol": symbol, "depth": depth},
+            use_global=True
+        )
 
         buy = sum(b.get("size", 0) for b in ob.get("buy_levels", []))
         sell = sum(a.get("size", 0) for a in ob.get("sell_levels", []))
@@ -90,7 +98,12 @@ def run_sentiment():
 
     # Rolling aggregate
     last_n = updated.tail(ROLLING_WINDOW)
-    avg_score = last_n["sentiment_score"].mean()
+    avg_score = (
+        last_n["sentiment_score"].mean()
+        if not last_n.empty
+        else score
+    )
+        
 
     agg = {
         "last_run_utc": run_time_utc.isoformat(),

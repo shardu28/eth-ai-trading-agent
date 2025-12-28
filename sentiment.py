@@ -50,38 +50,44 @@ def now_ist():
 
 def fetch_l2_sentiment(symbol=PRODUCT_SYMBOL, depth=L2_DEPTH):
     try:
-        ob = client_l2.get(
-            "/l2orderbook", 
-            {"symbol": symbol, "depth": depth},
-            use_global=True
+        ob = client.get(
+            f"/l2orderbook/{symbol}",
+            use_global=False  # India API is correct for L2
         )
 
-        buy = sum(b.get("size", 0) for b in ob.get("buy_levels", []))
-        sell = sum(a.get("size", 0) for a in ob.get("sell_levels", []))
+        result = ob.get("result", {})
+        buys = result.get("buy", [])[:depth]
+        sells = result.get("sell", [])[:depth]
 
-        return (buy - sell) / (buy + sell) if buy + sell > 0 else 0.0
+        buy_size = sum(float(b.get("size", 0)) for b in buys)
+        sell_size = sum(float(s.get("size", 0)) for s in sells)
+
+        return (buy_size - sell_size) / (buy_size + sell_size) if (buy_size + sell_size) > 0 else 0.0
 
     except Exception as e:
-        print(f"⚠️ L2 unavailable (global): {e}")
+        print(f"⚠️ L2 orderbook unavailable: {e}")
         return 0.0
 
 def fetch_trades_sentiment(symbol=PRODUCT_SYMBOL, lookback=TRADES_LOOKBACK):
     try:
         trades = client.get(
-            "/public/trades",
-            {"symbol": symbol, "limit": lookback},
-            use_global=True
+            f"/trades/{symbol}",
+            use_global=False
         )
 
+        rows = trades.get("result", [])[:lookback]
+
         signed = sum(
-            t["size"] if t["side"] == "buy" else -t["size"]
-            for t in trades.get("trades", [])
+            float(t["size"]) if t["side"] == "buy" else -float(t["size"])
+            for t in rows
         )
-        total = sum(t["size"] for t in trades.get("trades", []))
+
+        total = sum(float(t["size"]) for t in rows)
+
         return signed / total if total > 0 else 0.0
 
     except Exception as e:
-        print(f"⚠️ Trades unavailable (global): {e}")
+        print(f"⚠️ Trades unavailable: {e}")
         return 0.0
 
 # -------------------- Core --------------------

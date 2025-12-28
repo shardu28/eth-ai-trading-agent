@@ -58,9 +58,8 @@ class DeltaClient:
         Perform GET request to Delta API.
         Example: client.get("/history/candles", {...})
         """
-        # Always prefix with /v2
         base = self.global_base_url if use_global else self.base_url
-        url = f"{self.base_url}/v2{path}"
+        url = f"{base}/v2{path}"
         r = requests.get(url, params=params, headers=UA, timeout=timeout)
         r.raise_for_status()
         return r.json()

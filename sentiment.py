@@ -72,7 +72,22 @@ def fetch_trades_sentiment(symbol=PRODUCT_SYMBOL, lookback=TRADES_LOOKBACK):
     try:
         resp = client.get(f"/trades/{symbol}")
 
-        trades = resp.get("result", {}).get("trades", [])
+        # --- Normalize response shape ---
+        if isinstance(resp, list):
+            trades = resp
+
+        elif isinstance(resp, dict):
+            result = resp.get("result", [])
+            if isinstance(result, dict):
+                trades = result.get("trades", [])
+            elif isinstance(result, list):
+                trades = result
+            else:
+                trades = []
+
+        else:
+            trades = []
+
         trades = trades[:lookback]
 
         if not trades:

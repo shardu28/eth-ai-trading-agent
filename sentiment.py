@@ -70,19 +70,27 @@ def fetch_l2_sentiment(symbol=PRODUCT_SYMBOL, depth=L2_DEPTH):
 
 def fetch_trades_sentiment(symbol=PRODUCT_SYMBOL, lookback=TRADES_LOOKBACK):
     try:
-        trades = client.get(
-            f"/trades/{symbol}",
-            use_global=False
-        )
+        resp = client.get(f"/trades/{symbol}")
 
-        rows = trades.get("result", [])[:lookback]
+        trades = resp.get("result", {}).get("trades", [])
+        trades = trades[:lookback]
 
-        signed = sum(
-            float(t["size"]) if t["side"] == "buy" else -float(t["size"])
-            for t in rows
-        )
+        if not trades:
+            return 0.0
 
-        total = sum(float(t["size"]) for t in rows)
+        signed = 0.0
+        total = 0.0
+
+        for t in trades:
+            size = float(t.get("size", 0))
+            side = t.get("side")
+
+            if side == "buy":
+                signed += size
+            elif side == "sell":
+                signed -= size
+
+            total += size
 
         return signed / total if total > 0 else 0.0
 

@@ -66,13 +66,23 @@ def fetch_l2_sentiment(symbol=PRODUCT_SYMBOL, depth=L2_DEPTH):
         return 0.0
 
 def fetch_trades_sentiment(symbol=PRODUCT_SYMBOL, lookback=TRADES_LOOKBACK):
-    trades = client.get("/public/trades", {"symbol": symbol, "limit": lookback})
-    signed = sum(
-        t["size"] if t["side"] == "buy" else -t["size"]
-        for t in trades.get("trades", [])
-    )
-    total = sum(t["size"] for t in trades.get("trades", []))
-    return signed / total if total > 0 else 0.0
+    try:
+        trades = client.get(
+            "/public/trades",
+            {"symbol": symbol, "limit": lookback},
+            use_global=True
+        )
+
+        signed = sum(
+            t["size"] if t["side"] == "buy" else -t["size"]
+            for t in trades.get("trades", [])
+        )
+        total = sum(t["size"] for t in trades.get("trades", []))
+        return signed / total if total > 0 else 0.0
+
+    except Exception as e:
+        print(f"⚠️ Trades unavailable (global): {e}")
+        return 0.0
 
 # -------------------- Core --------------------
 def run_sentiment():

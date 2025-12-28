@@ -1,45 +1,58 @@
-name: Sentiment 15m Sandbox
+name: Sentiment 15m Sandbox Test
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/15 * * * *"   # every 15 minutes UTC
 
 permissions:
-  contents: write
+  contents: write   # REQUIRED to push CSV/JSON
 
 concurrency:
   group: sentiment-15m
   cancel-in-progress: true
 
 jobs:
-  sentiment:
+  test-sentiment:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
 
       - name: Run sentiment tester
         run: python sentiment_tester.py
 
       - name: Configure git
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Commit sentiment files if changed
+      - name: Commit sentiment outputs if updated
         run: |
           git status
-          if ! git diff --quiet; then
-            git add sentiment.csv sentiment_agg.json
-            git commit -m "Update sentiment data [15m]"
+
+          # Stage both files if they exist
+          if [ -f sentiment.csv ]; then
+            git add sentiment.csv
+          fi
+
+          if [ -f sentiment_agg.json ]; then
+            git add sentiment_agg.json
+          fi
+
+          # Commit only if something is staged
+          if ! git diff --cached --quiet; then
+            git commit -m "Update sentiment data [15m sandbox]"
             git push
           else
             echo "No sentiment changes"

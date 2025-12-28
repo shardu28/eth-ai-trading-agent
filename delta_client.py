@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import requests
 from config import DELTA_BASE_URL
+from config import DELTA_API_GLOBAL
 
 UA = {"User-Agent": "python-backtest-client"}
 ENABLE_PRIVATE_API = False
@@ -12,6 +13,7 @@ ENABLE_PRIVATE_API = False
 class DeltaClient:
     def __init__(self):
         self.base_url = DELTA_BASE_URL
+        self.global_base_url = DELTA_API_GLOBAL
         self.api_key = os.getenv("DELTA_API_KEY")
         self.api_secret = os.getenv("DELTA_API_SECRET")
 
@@ -51,12 +53,13 @@ class DeltaClient:
         data = self._signed_get("/wallet/balances")
         return data
 
-    def get(self, path, params=None, timeout=(5, 30)):
+    def get(self, path, params=None, timeout=(5, 30), use_global=False):
         """
         Perform GET request to Delta API.
         Example: client.get("/history/candles", {...})
         """
         # Always prefix with /v2
+        base = self.global_base_url if use_global else self.base_url
         url = f"{self.base_url}/v2{path}"
         r = requests.get(url, params=params, headers=UA, timeout=timeout)
         r.raise_for_status()

@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 from delta_client import DeltaClient
 from config import PRODUCT_SYMBOL
+from config import DELTA_API_GLOBAL
 
 SENTIMENT_FILE = "sentiment.csv"
 SENTIMENT_AGG_FILE = "sentiment_agg.json"
@@ -14,6 +15,7 @@ TRADES_LOOKBACK = 200
 ROLLING_WINDOW = 5
 
 client = DeltaClient()
+client_l2 = DeltaClient(base_url=DELTA_API_GLOBAL)
 
 # -------------------- Utilities --------------------
 def atomic_write(df, path):
@@ -38,11 +40,22 @@ def now_ist():
     )
 
 # -------------------- Sentiment Fetch --------------------
+
 def fetch_l2_sentiment(symbol=PRODUCT_SYMBOL, depth=L2_DEPTH):
-    ob = client.get("/l2orderbook", {"symbol": symbol, "depth": depth})
-    bids = sum(b["size"] for b in ob.get("buy_levels", []))
-    asks = sum(a["size"] for a in ob.get("sell_levels", []))
-    return (bids - asks) / (bids + asks) if (bids + asks) > 0 else 0.0
+    try:
+        ob = client_l2.get("/l2orderbook", {
+            "symbol": symbol,
+            "depth": depth
+        })
+
+        buy = sum(b.get("size", 0) for b in ob.get("buy_levels", []))
+        sell = sum(a.get("size", 0) for a in ob.get("sell_levels", []))
+
+        return (buy - sell) / (buy + sell) if buy + sell > 0 else 0.0
+
+    except Exception as e:
+        print(f"⚠️ L2 unavailable (global): {e}")
+        return 0.0
 
 def fetch_trades_sentiment(symbol=PRODUCT_SYMBOL, lookback=TRADES_LOOKBACK):
     trades = client.get("/public/trades", {"symbol": symbol, "limit": lookback})

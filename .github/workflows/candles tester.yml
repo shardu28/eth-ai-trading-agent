@@ -8,8 +8,9 @@ on:
 permissions:
   contents: write   # REQUIRED to push candles.csv back to repo
 
+# 🔒 GLOBAL WRITE LOCK (shared with sentiment + any other writer)
 concurrency:
-  group: candles-hourly
+  group: repo-writes-main
   cancel-in-progress: true
 
 jobs:
@@ -39,15 +40,14 @@ jobs:
 
       - name: Commit candles.csv if updated
         run: |
-          if [ -f candles.csv ]; then
-            git status
+          git status
 
-            # Stage candles.csv whether new or modified
+          if [ -f candles.csv ]; then
             git add candles.csv
 
-            # Commit only if there is something staged
             if ! git diff --cached --quiet; then
               git commit -m "Update candles.csv [hourly sandbox]"
+              git pull --rebase origin main
               git push
             else
               echo "No changes in candles.csv"

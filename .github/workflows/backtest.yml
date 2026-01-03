@@ -1,0 +1,58 @@
+name: SOL Backtest Parity Baseline
+
+on:
+  workflow_dispatch:   # manual only, on purpose
+
+permissions:
+  contents: read       # no repo writes allowed
+
+concurrency:
+  group: backtest-run
+  cancel-in-progress: false
+
+jobs:
+  run-backtest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run backtest
+        run: |
+          python backtest.py
+
+      # ---- Upload artifacts for parity testing ----
+
+      - name: Upload backtest candles
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-candles
+          path: backtest_candles.csv
+
+      - name: Upload backtest signals
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-signals
+          path: backtest_signals.csv
+
+      - name: Upload backtest trades
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-results
+          path: backtest_results.csv
+
+      - name: Upload equity curve
+        uses: actions/upload-artifact@v4
+        with:
+          name: equity-curve
+          path: equity_curve.png

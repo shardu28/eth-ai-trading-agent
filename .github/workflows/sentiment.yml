@@ -8,9 +8,9 @@ on:
 permissions:
   contents: write   # REQUIRED to push CSV/JSON
 
-# 🔒 GLOBAL WRITE LOCK (shared with candles workflow)
+# 🔒 ISOLATED LOCK (sentiment only)
 concurrency:
-  group: repo-writes-main
+  group: sentiment-data-writes
   cancel-in-progress: true
 
 jobs:
@@ -18,8 +18,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      # ⬇️ Checkout SENTIMENT DATA branch (not main)
+      - name: Checkout sentiment-data branch
         uses: actions/checkout@v4
+        with:
+          ref: sentiment-data
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,7 +45,7 @@ jobs:
         run: |
           git status
 
-          # Stage files if they exist
+          # Stage sentiment artifacts
           if [ -f sentiment.csv ]; then
             git add sentiment.csv
           fi
@@ -51,11 +54,10 @@ jobs:
             git add sentiment_agg.json
           fi
 
-          # Commit + rebase-safe push
+          # Commit only if something changed
           if ! git diff --cached --quiet; then
             git commit -m "Update sentiment data [15m sandbox]"
-            git pull --rebase origin main
-            git push
+            git push origin sentiment-data
           else
             echo "No sentiment changes"
           fi

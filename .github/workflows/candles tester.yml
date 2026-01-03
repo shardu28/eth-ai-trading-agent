@@ -3,14 +3,13 @@ name: Candles Hourly Sandbox Test
 on:
   workflow_dispatch:
   schedule:
-    - cron: "50 * * * *"   # runs every hour (UTC)
+    - cron: "50 * * * *"   # runs every hour UTC
 
 permissions:
-  contents: write   # REQUIRED to push candles.csv back to repo
+  contents: write   # REQUIRED to push to candles-data
 
-# 🔒 GLOBAL WRITE LOCK (shared with sentiment + any other writer)
 concurrency:
-  group: repo-writes-main
+  group: candles-hourly
   cancel-in-progress: true
 
 jobs:
@@ -18,8 +17,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout candles-data branch
         uses: actions/checkout@v4
+        with:
+          ref: candles-data   # 🔑 CRITICAL
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,15 +41,13 @@ jobs:
 
       - name: Commit candles.csv if updated
         run: |
-          git status
-
           if [ -f candles.csv ]; then
+            git status
             git add candles.csv
 
             if ! git diff --cached --quiet; then
-              git commit -m "Update candles.csv [hourly sandbox]"
-              git pull --rebase origin main
-              git push
+              git commit -m "Update candles.csv [hourly]"
+              git push origin candles-data
             else
               echo "No changes in candles.csv"
             fi

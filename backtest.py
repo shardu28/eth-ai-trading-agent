@@ -34,7 +34,7 @@ RISK_FRACTION = 0.02
 
 # Session filter (IST)
 SESSION_START_IST = 10
-SESSION_END_IST = 23
+SESSION_END_IST = 0
 
 # Volatility filter
 ATR_PCT_MIN = 0.005
@@ -153,9 +153,19 @@ def run_backtest():
             "vp_node": vp_node,
         })
 
-        # Session filter
-        if ts_ist.hour < SESSION_START_IST or ts_ist.hour > SESSION_END_IST:
-            equity_curve.append(equity); times.append(ts); continue
+        # Session filter (10:00 IST to 00:00 IST)
+        session_start = ts_ist.replace(hour=SESSION_START_HOUR, minute=0, second=0)
+
+        # Midnight handling (end of day)
+        if SESSION_END_HOUR == 0:
+            session_end = ts_ist.replace(hour=23, minute=59, second=59)
+        else:
+            session_end = ts_ist.replace(hour=SESSION_END_HOUR, minute=0, second=0)
+
+        if not (session_start <= ts_ist <= session_end):
+            equity_curve.append(equity)
+            times.append(ts)
+            continue
 
         # Trade exit
         if trades and trades[-1][4] == "open":
@@ -222,7 +232,7 @@ def run_backtest():
             sl = entry - ATR_MULT_SL * atr if side == "buy" else entry + ATR_MULT_SL * atr
             tp = entry + ATR_MULT_TP * atr if side == "buy" else entry - ATR_MULT_TP * atr
 
-            trades.append([ts, side, entry, None, "open", 0.0, equity, tp, sl, size])
+            trades.append([ts, ts_ist, side, entry, None, "open", 0.0, equity, tp, sl, size])
             trades_today[day] += 1
 
         equity_curve.append(equity); times.append(ts)
@@ -243,7 +253,7 @@ def run_backtest():
 
     with open(OUTPUT_CSV, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["time","side","entry","exit","result","pnl_usd","equity","tp","sl","size"])
+        writer.writerow(["time_utc", "time_ist", "side", "entry", "exit", "result", "pnl_usd", "equity", "tp", "sl", "size"])
         writer.writerows(trades)
 
     plt.figure(figsize=(10,5))

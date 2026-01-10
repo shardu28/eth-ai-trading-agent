@@ -5,8 +5,8 @@ import numpy as np
 from indicators import compute_indicators
 
 # ---------------- CONFIG ----------------
-CANDLES_CSV = "backtest-candles.csv"
-SIGNALS_CSV = "backtest-signals.csv"
+CANDLES_CSV = "backtest_candles.csv"
+SIGNALS_CSV = "backtest_signals.csv"
 
 FLOAT_TOL = 1e-8
 VP_NODE_TOL = 0.01

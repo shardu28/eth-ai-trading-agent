@@ -153,14 +153,15 @@ def run_backtest():
             "vp_node": vp_node,
         })
 
-        # Session filter (10:00 IST to 00:00 IST)
-        session_start = ts_ist.replace(hour=SESSION_START_HOUR, minute=0, second=0)
 
-        # Midnight handling (end of day)
-        if SESSION_END_HOUR == 0:
+        # Session filter (10:00 IST to 00:00 IST)
+        session_start = ts_ist.replace(hour=SESSION_START_IST, minute=0, second=0)
+
+        if SESSION_END_IST == 0:
+            # Session runs until midnight
             session_end = ts_ist.replace(hour=23, minute=59, second=59)
         else:
-            session_end = ts_ist.replace(hour=SESSION_END_HOUR, minute=0, second=0)
+            session_end = ts_ist.replace(hour=SESSION_END_IST, minute=0, second=0)
 
         if not (session_start <= ts_ist <= session_end):
             equity_curve.append(equity)

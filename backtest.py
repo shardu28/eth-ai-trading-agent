@@ -8,22 +8,21 @@ import ta
 import os
 
 from delta_client import DeltaClient
-from config import PRODUCT_SYMBOL  # set this to "SOLUSD"
+from config import PRODUCT_SYMBOL
 
 OUTPUT_CSV = "backtest_results.csv"
 EQUITY_CURVE_IMG = "equity_curve.png"
 
-# 🔹 NEW: parity-testing exports
+# 🔹 Parity-testing exports
 BACKTEST_CANDLES_CSV = "backtest_candles.csv"
 BACKTEST_SIGNALS_CSV = "backtest_signals.csv"
 
 # ----------------- Fixed Backtest Params -----------------
-DAYS = 365          # 1 year
+DAYS = 365
 START_EQUITY = 100.0
 LEVERAGE = 20.0
-ROUND_TRIP_FEE = 0.001  # 0.1% total fee per completed trade
+ROUND_TRIP_FEE = 0.001
 
-# Tweaked strategy params
 ATR_MULT_SL = 1.3
 ATR_MULT_TP = 3.7
 ADX_THRESH = 29
@@ -34,242 +33,167 @@ RISK_FRACTION = 0.02
 
 # Session filter (IST)
 SESSION_START_IST = 10
-SESSION_END_IST = 0
+SESSION_END_IST = 0  # midnight
 
-# Volatility filter
 ATR_PCT_MIN = 0.005
-
-# API chunking
 CHUNK_DAYS = 90
 POLITE_DELAY = 0.2
 
 # ----------------- Helpers -----------------
-def fetch_chunked_candles(client, symbol, resolution, start, end, chunk_days=CHUNK_DAYS):
-    all_candles = []
-    cur_start = start
-    while cur_start < end:
-        cur_end = min(cur_start + chunk_days * 24 * 3600, end)
+def fetch_chunked_candles(client, symbol, resolution, start, end):
+    out = []
+    cur = start
+    while cur < end:
+        nxt = min(cur + CHUNK_DAYS * 86400, end)
         raw = client.get("/history/candles", {
             "symbol": symbol,
             "resolution": resolution,
-            "start": cur_start,
-            "end": cur_end,
+            "start": cur,
+            "end": nxt,
         })
-        chunk = raw.get("result", [])
-        all_candles.extend(chunk)
-        cur_start = cur_end
+        out.extend(raw.get("result", []))
+        cur = nxt
         time.sleep(POLITE_DELAY)
-    all_candles.sort(key=lambda r: r["time"])
-    return all_candles
+    return sorted(out, key=lambda x: x["time"])
 
-def compute_avg_vwma(series_close, series_volume, window):
-    num = (series_close * series_volume).rolling(window=window, min_periods=1).sum()
-    den = series_volume.rolling(window=window, min_periods=1).sum()
-    return num / den
+def compute_avg_vwma(close, vol, window):
+    return (close * vol).rolling(window, 1).sum() / vol.rolling(window, 1).sum()
 
-def compute_vp_node(series_close, window, precision=2):
-    def vp_mode(x):
-        if len(x) == 0:
-            return float("nan")
-        rounded = (x.round(precision)).astype(str)
-        return float(pd.Series(rounded).mode().iloc[0])
-    return series_close.rolling(window=window, min_periods=1).apply(lambda x: vp_mode(x), raw=False)
+def compute_vp_node(close, window, precision=2):
+    def vp(x):
+        r = x.round(precision).astype(str)
+        return float(pd.Series(r).mode().iloc[0])
+    return close.rolling(window, 1).apply(vp, raw=False)
 
-def rvi_approx(series_close, series_open, series_high, series_low, period):
-    num = (series_close - series_open).rolling(window=period, min_periods=1).mean()
-    den = (series_high - series_low).rolling(window=period, min_periods=1).mean().abs() + 1e-9
-    rvi = num / den
-    return 50.0 * (1 + rvi.clip(-1, 1))
+def rvi_approx(c, o, h, l, p):
+    num = (c - o).rolling(p, 1).mean()
+    den = (h - l).rolling(p, 1).mean().abs() + 1e-9
+    return 50 * (1 + (num / den).clip(-1, 1))
 
 # ----------------- Backtest -----------------
 def run_backtest():
     client = DeltaClient()
-
     end_ts = int(time.time())
-    start_ts = end_ts - DAYS * 24 * 3600
+    start_ts = end_ts - DAYS * 86400
 
-    print(f"Fetching {DAYS} days of 1H candles for {PRODUCT_SYMBOL}...")
     candles = fetch_chunked_candles(client, PRODUCT_SYMBOL, "1h", start_ts, end_ts)
-    if not candles:
-        raise RuntimeError("No candle data returned from API")
-
     df = pd.DataFrame(candles)
+
     df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
     df["time_ist"] = df["time"].dt.tz_convert("Asia/Kolkata")
-
     for c in ["open", "high", "low", "close", "volume"]:
         df[c] = df[c].astype(float)
 
-    # ----------------- Indicators -----------------
     df["atr"] = ta.volatility.AverageTrueRange(
-        high=df["high"], low=df["low"], close=df["close"], window=14
+        df["high"], df["low"], df["close"], 14
     ).average_true_range()
 
     df["adx"] = ta.trend.ADXIndicator(
-        high=df["high"], low=df["low"], close=df["close"], window=14
+        df["high"], df["low"], df["close"], 14
     ).adx()
 
-    df["avg_close"] = df["close"].rolling(window=AVG_WINDOW, min_periods=1).mean()
+    df["avg_close"] = df["close"].rolling(AVG_WINDOW, 1).mean()
     df["avg_vwma"] = compute_avg_vwma(df["close"], df["volume"], AVG_WINDOW)
 
     df["vwma_signal"] = 0
     df.loc[df["avg_close"] > df["avg_vwma"], "vwma_signal"] = 1
     df.loc[df["avg_close"] < df["avg_vwma"], "vwma_signal"] = -1
 
-    df["rvi"] = rvi_approx(
-        df["close"], df["open"], df["high"], df["low"], RVI_PERIOD
-    )
+    df["rvi"] = rvi_approx(df["close"], df["open"], df["high"], df["low"], RVI_PERIOD)
     mean_rvi = df["rvi"].mean()
     df["rvi_signal"] = df["rvi"].apply(lambda x: 1 if x > mean_rvi else -1)
 
     df["vp_node"] = compute_vp_node(df["close"], VP_WINDOW)
 
-    # 🔹 NEW: export candles exactly as used
     df.to_csv(BACKTEST_CANDLES_CSV, index=False)
-    print(f"📦 Saved backtest candles -> {BACKTEST_CANDLES_CSV}")
 
-    # ----------------- Trading Loop -----------------
     equity = START_EQUITY
-    trades, equity_curve, times = [], [], []
+    trades = []
+    equity_curve, times = [], []
     trades_today = {}
-
-    # 🔹 NEW: signal snapshot storage
     signal_rows = []
 
-    for i, row in df.iterrows():
-        ts = row["time"]
-        ts_ist = row["time_ist"]
-        close, atr, adx = row["close"], row["atr"], row["adx"]
-        vwma_sig, rvi_sig, vp_node = row["vwma_signal"], row["rvi_signal"], row["vp_node"]
+    for i, r in df.iterrows():
+        ts, ts_ist = r["time"], r["time_ist"]
+        close, atr, adx = r["close"], r["atr"], r["adx"]
+        vw, rv, vp = r["vwma_signal"], r["rvi_signal"], r["vp_node"]
 
-        # --- record indicator state per candle ---
         signal_rows.append({
-            "time": ts,
-            "close": close,
-            "atr": atr,
-            "adx": adx,
-            "vwma_signal": vwma_sig,
-            "rvi_signal": rvi_sig,
-            "vp_node": vp_node,
+            "time": ts, "close": close, "atr": atr,
+            "adx": adx, "vwma_signal": vw,
+            "rvi_signal": rv, "vp_node": vp
         })
 
-
-        # Session filter (10:00 IST to 00:00 IST)
-        session_start = ts_ist.replace(hour=SESSION_START_IST, minute=0, second=0)
-
-        if SESSION_END_IST == 0:
-            # Session runs until midnight
-            session_end = ts_ist.replace(hour=23, minute=59, second=59)
-        else:
-            session_end = ts_ist.replace(hour=SESSION_END_IST, minute=0, second=0)
-
-        if not (session_start <= ts_ist <= session_end):
-            equity_curve.append(equity)
-            times.append(ts)
-            continue
-
-        # Trade exit
-        if trades and trades[-1][4] == "open":
-            last = trades[-1]
-            entry, side, tp, sl, size = last[2], last[1], last[7], last[8], last[9]
-            exit_price, result = None, None
-
-            if side == "buy":
-                if close >= tp: exit_price, result = tp, "tp"
-                elif close <= sl: exit_price, result = sl, "sl"
+        # -------- EXIT ALWAYS --------
+        if trades and trades[-1]["status"] == "open":
+            t = trades[-1]
+            hit = None
+            if t["side"] == "buy":
+                if close >= t["tp"]: hit = ("tp", t["tp"])
+                elif close <= t["sl"]: hit = ("sl", t["sl"])
             else:
-                if close <= tp: exit_price, result = tp, "tp"
-                elif close >= sl: exit_price, result = sl, "sl"
+                if close <= t["tp"]: hit = ("tp", t["tp"])
+                elif close >= t["sl"]: hit = ("sl", t["sl"])
 
-            if result:
-                gross_pnl = (exit_price - entry) * size if side == "buy" else (entry - exit_price) * size
-                notional = exit_price * size
-                fees = ROUND_TRIP_FEE * notional
-                pnl = gross_pnl - fees
+            if hit:
+                result, px = hit
+                pnl = ((px - t["entry"]) if t["side"] == "buy" else (t["entry"] - px)) * t["size"]
+                fees = ROUND_TRIP_FEE * px * t["size"]
+                equity += pnl - fees
+                t.update({"exit": px, "result": result, "pnl": pnl - fees, "equity": equity, "status": result})
 
-                equity += pnl
-                trades[-1][3] = exit_price
-                trades[-1][4] = result
-                trades[-1][5] = pnl
-                trades[-1][6] = equity
-
-        if trades and trades[-1][4] == "open":
+        if trades and trades[-1]["status"] == "open":
             equity_curve.append(equity); times.append(ts); continue
 
-        if i < 30 or pd.isna(adx) or pd.isna(atr):
+        # -------- ENTRY SESSION FILTER --------
+        start = ts_ist.replace(hour=SESSION_START_IST, minute=0, second=0)
+        end = ts_ist.replace(hour=23, minute=59, second=59) if SESSION_END_IST == 0 \
+              else ts_ist.replace(hour=SESSION_END_IST, minute=0, second=0)
+
+        if not (start <= ts_ist <= end):
             equity_curve.append(equity); times.append(ts); continue
 
-        atr_pct = atr / close if atr and close else 0.0
-        if atr_pct < ATR_PCT_MIN:
+        if i < 30 or adx <= ADX_THRESH or atr / close < ATR_PCT_MIN:
             equity_curve.append(equity); times.append(ts); continue
 
-        if adx <= ADX_THRESH:
-            equity_curve.append(equity); times.append(ts); continue
-
-        ind_sig = vwma_sig
-        vp_ok = False
-        if not pd.isna(vp_node):
-            vp_ok = (close > vp_node) if ind_sig == 1 else (close < vp_node)
-
-        extra_confirmation = (rvi_sig == ind_sig) or vp_ok
-        if ind_sig != 0 and extra_confirmation:
+        vp_ok = (close > vp) if vw == 1 else (close < vp)
+        if vw != 0 and ((rv == vw) or vp_ok):
             day = ts_ist.date()
-            trades_today[day] = trades_today.get(day, 0)
-            if trades_today[day] >= 3:
+            if trades_today.get(day, 0) >= 3:
                 equity_curve.append(equity); times.append(ts); continue
 
-            risk_capital = equity * RISK_FRACTION
-            denom = ATR_MULT_SL * atr if atr and atr > 0 else None
-            if not denom:
+            risk = equity * RISK_FRACTION
+            size = risk / (ATR_MULT_SL * atr)
+            if (size * close) / LEVERAGE > equity:
                 equity_curve.append(equity); times.append(ts); continue
 
-            size = risk_capital / denom
-            required_margin = (size * close) / LEVERAGE
-            if required_margin > equity:
-                equity_curve.append(equity); times.append(ts); continue
-
-            side = "buy" if ind_sig == 1 else "sell"
-            entry = close
-            sl = entry - ATR_MULT_SL * atr if side == "buy" else entry + ATR_MULT_SL * atr
-            tp = entry + ATR_MULT_TP * atr if side == "buy" else entry - ATR_MULT_TP * atr
-
-            trades.append([ts, ts_ist, side, entry, None, "open", 0.0, equity, tp, sl, size])
-            trades_today[day] += 1
+            side = "buy" if vw == 1 else "sell"
+            trades.append({
+                "time": ts, "time_ist": ts_ist, "side": side,
+                "entry": close,
+                "tp": close + ATR_MULT_TP * atr if side == "buy" else close - ATR_MULT_TP * atr,
+                "sl": close - ATR_MULT_SL * atr if side == "buy" else close + ATR_MULT_SL * atr,
+                "size": size, "status": "open"
+            })
+            trades_today[day] = trades_today.get(day, 0) + 1
 
         equity_curve.append(equity); times.append(ts)
 
-    # 🔹 NEW: export indicator + signal state
     pd.DataFrame(signal_rows).to_csv(BACKTEST_SIGNALS_CSV, index=False)
-    print(f"📦 Saved backtest signals -> {BACKTEST_SIGNALS_CSV}")
-
-    # ----------------- Results -----------------
-    closed_trades = [t for t in trades if t[4] in ("tp", "sl")]
-    wins = [t for t in closed_trades if t[4] == "tp"]
-    losses = [t for t in closed_trades if t[4] == "sl"]
-
-    win_rate = len(wins) / len(closed_trades) if closed_trades else 0.0
-    avg_win = sum(t[5] for t in wins) / len(wins) if wins else 0.0
-    avg_loss = sum(t[5] for t in losses) / len(losses) if losses else 0.0
-    expectancy = win_rate * avg_win + (1 - win_rate) * avg_loss
 
     with open(OUTPUT_CSV, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["time_utc", "time_ist", "side", "entry", "exit", "result", "pnl_usd", "equity", "tp", "sl", "size"])
-        writer.writerows(trades)
+        w = csv.DictWriter(f, trades[0].keys())
+        w.writeheader()
+        w.writerows(trades)
 
     plt.figure(figsize=(10,5))
-    plt.plot(times, equity_curve, label="Equity")
-    plt.title(f"Best Equity Curve - {PRODUCT_SYMBOL}")
-    plt.xlabel("Time"); plt.ylabel("Equity (USD)")
-    plt.legend(); plt.grid(True); plt.tight_layout()
+    plt.plot(times, equity_curve)
+    plt.title(f"Equity Curve - {PRODUCT_SYMBOL}")
+    plt.grid(True)
     plt.savefig(EQUITY_CURVE_IMG)
 
-    print(f"✅ Saved equity curve -> {EQUITY_CURVE_IMG}")
-    print(
-        f"Trades: {len(trades)} | Closed: {len(closed_trades)} | "
-        f"Win rate: {win_rate:.2%} | Expectancy: {expectancy:.2f} | "
-        f"Final equity: {equity:.2f}"
-    )
+    print(f"Closed trades: {len([t for t in trades if t['status'] in ('tp','sl')])}")
+    print(f"Final equity: {equity:.2f}")
 
 if __name__ == "__main__":
     run_backtest()

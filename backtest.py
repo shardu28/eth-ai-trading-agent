@@ -32,8 +32,8 @@ RVI_PERIOD = 10
 RISK_FRACTION = 0.02
 
 # 🔹 Session filter (IST, hour-based)
-SESSION_START_IST = 10      # 10:00 IST
-SESSION_END_IST = 23         # midnight
+SESSION_START_IST = 9      # 10:00 IST
+SESSION_END_IST = 0         # midnight
 
 ATR_PCT_MIN = 0.005
 CHUNK_DAYS = 90

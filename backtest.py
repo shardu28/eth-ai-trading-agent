@@ -31,9 +31,9 @@ VP_WINDOW = 50
 RVI_PERIOD = 10
 RISK_FRACTION = 0.02
 
-# 🔹 Session filter (IST, minute-based, midnight-safe)
-SESSION_START_MIN = 9 * 60 + 00   # 12:30 IST
-SESSION_END_MIN   = 0 * 60 + 30    # 01:30 IST
+# 🔹 Session filter (IST, hour-based)
+SESSION_START_IST = 10      # 10:00 IST
+SESSION_END_IST = 0         # midnight
 
 ATR_PCT_MIN = 0.005
 CHUNK_DAYS = 90
@@ -145,14 +145,12 @@ def run_backtest():
         if trades and trades[-1]["status"] == "open":
             equity_curve.append(equity); times.append(ts); continue
 
-        # -------- ENTRY SESSION FILTER (minute-based) --------
-        cur_min = ts_ist.hour * 60 + ts_ist.minute
-        if SESSION_START_MIN <= SESSION_END_MIN:
-            in_session = SESSION_START_MIN <= cur_min <= SESSION_END_MIN
-        else:
-            in_session = cur_min >= SESSION_START_MIN or cur_min <= SESSION_END_MIN
+        # -------- ENTRY SESSION FILTER (hour-based) --------
+        start = ts_ist.replace(hour=SESSION_START_IST, minute=0, second=0)
+        end = ts_ist.replace(hour=23, minute=59, second=59) if SESSION_END_IST == 0 \
+              else ts_ist.replace(hour=SESSION_END_IST, minute=0, second=0)
 
-        if not in_session:
+        if not (start <= ts_ist <= end):
             equity_curve.append(equity); times.append(ts); continue
 
         if i < 30 or adx <= ADX_THRESH or atr / close < ATR_PCT_MIN:

@@ -29,10 +29,10 @@ ADX_THRESH = 29
 AVG_WINDOW = 5
 VP_WINDOW = 50
 RVI_PERIOD = 10
-RISK_FRACTION = 0.02
+RISK_FRACTION = 0.03
 
 # 🔹 Session filter (IST, hour-based)
-SESSION_START_IST = 9      # 10:00 IST
+SESSION_START_IST = 10      # 10:00 IST
 SESSION_END_IST = 0         # midnight
 
 ATR_PCT_MIN = 0.005

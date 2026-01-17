@@ -145,7 +145,7 @@ def run_backtest():
         if trades and trades[-1]["status"] == "open":
             equity_curve.append(equity); times.append(ts); continue
 
-        # -------- ENTRY SESSION FILTER (hour-based) --------
+        # -------- ENTRY SESSION FILTER --------
         start = ts_ist.replace(hour=SESSION_START_IST, minute=0, second=0)
         end = ts_ist.replace(hour=23, minute=59, second=59) if SESSION_END_IST == 0 \
               else ts_ist.replace(hour=SESSION_END_IST, minute=0, second=0)
@@ -162,10 +162,17 @@ def run_backtest():
             if trades_today.get(day, 0) >= 3:
                 equity_curve.append(equity); times.append(ts); continue
 
+            # -------- FIXED POSITION SIZING (INTEGER CONTRACTS) --------
             risk = equity * RISK_FRACTION
-            size = risk / (ATR_MULT_SL * atr)
+            raw_size = risk / (ATR_MULT_SL * atr)
+            size = int(raw_size)  # floor to integer contracts
+
+            if size < 1:
+                equity_curve.append(equity); times.append(ts); continue
+
             if (size * close) / LEVERAGE > equity:
                 equity_curve.append(equity); times.append(ts); continue
+            # -----------------------------------------------------------
 
             side = "buy" if vw == 1 else "sell"
             trades.append({

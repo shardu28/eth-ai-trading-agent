@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 from delta_client import DeltaClient
 from config import PRODUCT_SYMBOL, CANDLE_RESOLUTION
+import requests
 
 CANDLES_FILE = "candles.csv"
 client = DeltaClient()
@@ -16,6 +17,21 @@ def atomic_write(df, path):
     tmp = path + ".tmp"
     df.to_csv(tmp, index=False)
     os.replace(tmp, path)
+
+# -------------------- Retry-safe GET --------------------
+def safe_get(client, path, params, retries=5, delay=5):
+    for attempt in range(1, retries + 1):
+        try:
+            return client.get(path, params)
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response else None
+            if status and 500 <= status < 600:
+                print(f"⚠️ Delta API {status} (attempt {attempt}/{retries})")
+                if attempt < retries:
+                    time.sleep(delay)
+                    continue
+            raise
+    return None
 
 # -------------------- Fetching --------------------
 def fetch_chunked_candles(symbol, resolution, start, end, chunk_days=90):
@@ -104,12 +120,16 @@ def append_new_candle(client):
         print("No finalized candle yet.")
         return
 
-    raw = client.get("/history/candles", {
+    raw = safe_get(client, "/history/candles", {
         "symbol": PRODUCT_SYMBOL,
         "resolution": CANDLE_RESOLUTION,
         "start": int(expected_next.timestamp()),
         "end": int(now.timestamp())
     })
+
+    if not raw or "result" not in raw:
+        print("❌ Failed to fetch new candle after retries. Skipping this run.")
+        return
 
     rows = raw.get("result", [])
     if not rows:

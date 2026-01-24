@@ -19,7 +19,7 @@ BACKTEST_SIGNALS_CSV = "backtest_signals.csv"
 
 # ----------------- Fixed Backtest Params -----------------
 DAYS = 365
-START_EQUITY = 100000.0
+START_EQUITY = 100.0
 LEVERAGE = 20.0
 ROUND_TRIP_FEE = 0.001
 

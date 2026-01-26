@@ -83,25 +83,31 @@ def run_pseudotest():
 
     candles["time_ist"] = candles["time_utc"].dt.tz_convert("Asia/Kolkata")
 
-    # -------- Align sentiment to hourly candles --------
+    # -------- FIXED: Align sentiment to hourly candles --------
+    candles["hour"] = candles["time_utc"].dt.floor("1h")
     sentiment["hour"] = sentiment["run_time_utc"].dt.floor("1h")
+
     sent_agg = (
         sentiment
         .groupby("hour")["sentiment_score"]
         .mean()
-        .rolling(SENTIMENT_WINDOW, 1)
+        .rolling(SENTIMENT_WINDOW, min_periods=1)
         .mean()
-        .rename("sentiment_mean")
+        .reset_index()
+        .rename(columns={"sentiment_score": "sentiment_mean"})
     )
 
     candles = candles.merge(
         sent_agg,
-        left_on=candles["time_utc"].dt.floor("1h"),
-        right_index=True,
+        on="hour",
         how="left"
     )
 
     candles["sentiment_mean"].fillna(0, inplace=True)
+
+    # -------- HARD SAFETY CHECK --------
+    assert candles["sentiment_mean"].abs().sum() > 0, \
+        "Sentiment merge failed: sentiment_mean is all zeros"
 
     # -------- Indicators --------
     for c in ["open", "high", "low", "close", "volume"]:
@@ -228,8 +234,6 @@ def run_pseudotest():
     print("Trades:", len(trades))
     print(f"Final equity: {equity:.2f}")
     print(f"Return %: {((equity / START_EQUITY) - 1) * 100:.2f}")
-    print("Repo root:", REPO_ROOT)
-    print("Contents:", list(REPO_ROOT.iterdir()))
 
 # ----------------- Entry Point -----------------
 def main():

@@ -76,22 +76,28 @@ def run_pseudotest():
 
     candles["time_ist"] = candles["time_utc"].dt.tz_convert("Asia/Kolkata")
 
-    # -------- SENTIMENT ALIGNMENT (CORRECT, AS-OF) --------
-    candles = candles.sort_values("time_utc")
+# -------- SENTIMENT HOURLY CLUSTERING (FIXED) --------
     sentiment = sentiment.sort_values("run_time_utc")
 
-    sentiment["sentiment_mean"] = (
-        sentiment["sentiment_score"]
-        .rolling(SENTIMENT_WINDOW, min_periods=1)
+    # Bucket sentiment into UTC hourly clusters
+    sent_hourly = (
+        sentiment
+        .assign(hour=lambda x: x["run_time_utc"].dt.floor("1h"))
+        .groupby("hour", as_index=False)["sentiment_score"]
         .mean()
+        .rename(columns={"sentiment_score": "sentiment_mean"})
     )
 
-    candles = pd.merge_asof(
-        candles,
-        sentiment[["run_time_utc", "sentiment_mean"]],
-        left_on="time_utc",
-        right_on="run_time_utc",
-        direction="backward"
+    # OPTIONAL (recommended): prevent same-hour lookahead
+    # sent_hourly["sentiment_mean"] = sent_hourly["sentiment_mean"].shift(1)
+
+    # Align candles to UTC hourly grid
+    candles["hour"] = candles["time_utc"].dt.floor("1h")
+
+    candles = candles.merge(
+        sent_hourly,
+        on="hour",
+        how="left"
     )
 
     candles["sentiment_mean"] = candles["sentiment_mean"].fillna(0.0)

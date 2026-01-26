@@ -6,10 +6,20 @@ from datetime import datetime
 import pandas as pd
 import ta
 import matplotlib.pyplot as plt
+from pathlib import Path
+
+# ----------------- PATH RESOLUTION (CRITICAL FIX) -----------------
+REPO_ROOT = Path(__file__).resolve().parent
+
+def require_file(relative_path: str) -> Path:
+    path = REPO_ROOT / relative_path
+    if not path.exists():
+        raise FileNotFoundError(f"Required file not found: {path}")
+    return path
 
 # ----------------- CONFIG -----------------
-CANDLES_CSV = "candles.csv"
-SENTIMENT_CSV = "sentiment.csv"
+CANDLES_CSV = require_file("candles-data/candles.csv")
+SENTIMENT_CSV = require_file("sentiment-data/sentiment.csv")
 
 OUTPUT_CSV = "pesudotest_results.csv"
 EQUITY_CURVE_IMG = "pesudotest_equity_curve.png"

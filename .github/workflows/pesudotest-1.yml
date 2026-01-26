@@ -1,0 +1,33 @@
+name: PseudoTest-1 (Candles + Sentiment)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-pseudotest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run pseudotest
+        run: |
+          python pesudotest-1.py
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pesudotest-1-results
+          path: |
+            pesudotest_results.csv
+            pesudotest_signals.csv
+            pesudotest_equity_curve.png

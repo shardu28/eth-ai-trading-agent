@@ -8,7 +8,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      # --- Checkout MAIN (code + workflows) ---
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+
+      # --- Checkout CANDLES data branch ---
+      - name: Checkout candles-data branch
+        uses: actions/checkout@v4
+        with:
+          ref: candles-data
+          path: candles-data
+
+      # --- Checkout SENTIMENT data branch ---
+      - name: Checkout sentiment-data branch
+        uses: actions/checkout@v4
+        with:
+          ref: sentiment-data
+          path: sentiment-data
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -17,10 +36,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install -r main/requirements.txt
 
       - name: Run pseudotest
         run: |
+          cd main
           python pesudotest-1.py
 
       - name: Upload artifacts
@@ -28,6 +48,6 @@ jobs:
         with:
           name: pesudotest-1-results
           path: |
-            pesudotest_results.csv
-            pesudotest_signals.csv
-            pesudotest_equity_curve.png
+            main/pesudotest_results.csv
+            main/pesudotest_signals.csv
+            main/pesudotest_equity_curve.png

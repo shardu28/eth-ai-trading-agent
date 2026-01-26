@@ -228,6 +228,8 @@ def run_pseudotest():
     print("Trades:", len(trades))
     print(f"Final equity: {equity:.2f}")
     print(f"Return %: {((equity / START_EQUITY) - 1) * 100:.2f}")
+    print("Repo root:", REPO_ROOT)
+    print("Contents:", list(REPO_ROOT.iterdir()))
 
 # ----------------- Entry Point -----------------
 def main():

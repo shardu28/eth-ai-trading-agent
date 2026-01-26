@@ -1,6 +1,7 @@
 # pesudotest-1.py
-# Pseudo backtest: Candles + Sentiment (read-only)
+# Indicator-only pseudo backtest (NO sentiment)
 
+import csv
 import pandas as pd
 import ta
 import matplotlib.pyplot as plt
@@ -15,14 +16,14 @@ def require_file(relative_path: str) -> Path:
         raise FileNotFoundError(f"Required file not found: {path}")
     return path
 
-# ----------------- CONFIG -----------------
+# ----------------- FILES -----------------
 CANDLES_CSV = require_file("candles-data/candles.csv")
-SENTIMENT_CSV = require_file("sentiment-data/sentiment.csv")
 
 OUTPUT_CSV = "pesudotest_results.csv"
 SIGNALS_CSV = "pesudotest_signals.csv"
 EQUITY_CURVE_IMG = "pesudotest_equity_curve.png"
 
+# ----------------- PARAMS (MATCH BACKTEST) -----------------
 START_EQUITY = 100.0
 LEVERAGE = 20.0
 ROUND_TRIP_FEE = 0.001
@@ -37,17 +38,9 @@ RISK_FRACTION = 0.03
 ATR_PCT_MIN = 0.005
 
 SESSION_START_IST = 10
-SESSION_END_IST = 0   # midnight cutoff
+SESSION_END_IST = 0   # midnight
 
-SENTIMENT_WINDOW = 5
-
-SENTIMENT_START = pd.Timestamp("2025-12-28 06:36:46.525457+00:00")
-SENTIMENT_END   = pd.Timestamp("2026-01-25 23:46:30.606611+00:00")
-
-CANDLE_START = pd.Timestamp("2024-12-28 07:00:00+00:00")
-CANDLE_END   = pd.Timestamp("2026-01-26 00:00:00+00:00")
-
-# ----------------- Helpers -----------------
+# ----------------- HELPERS -----------------
 def compute_avg_vwma(close, vol, window):
     return (close * vol).rolling(window, 1).sum() / vol.rolling(window, 1).sum()
 
@@ -62,96 +55,62 @@ def rvi_approx(c, o, h, l, p):
     den = (h - l).rolling(p, 1).mean().abs() + 1e-9
     return 50 * (1 + (num / den).clip(-1, 1))
 
-# ----------------- Core Logic -----------------
+# ----------------- CORE -----------------
 def run_pseudotest():
 
-    candles = pd.read_csv(CANDLES_CSV, parse_dates=["time_utc"])
-    sentiment = pd.read_csv(SENTIMENT_CSV, parse_dates=["run_time_utc"])
+    df = pd.read_csv(CANDLES_CSV, parse_dates=["time_utc"])
+    df = df.sort_values("time_utc")
 
-    candles = candles[(candles["time_utc"] >= CANDLE_START) &
-                      (candles["time_utc"] <= CANDLE_END)].copy()
+    df["time"] = df["time_utc"]
+    df["time_ist"] = df["time"].dt.tz_convert("Asia/Kolkata")
 
-    sentiment = sentiment[(sentiment["run_time_utc"] >= SENTIMENT_START) &
-                          (sentiment["run_time_utc"] <= SENTIMENT_END)].copy()
-
-    candles["time_ist"] = candles["time_utc"].dt.tz_convert("Asia/Kolkata")
-
-# -------- SENTIMENT HOURLY CLUSTERING (FIXED) --------
-    sentiment = sentiment.sort_values("run_time_utc")
-
-    # Bucket sentiment into UTC hourly clusters
-    sent_hourly = (
-        sentiment
-        .assign(hour=lambda x: x["run_time_utc"].dt.floor("1h"))
-        .groupby("hour", as_index=False)["sentiment_score"]
-        .mean()
-        .rename(columns={"sentiment_score": "sentiment_mean"})
-    )
-
-    # OPTIONAL (recommended): prevent same-hour lookahead
-    # sent_hourly["sentiment_mean"] = sent_hourly["sentiment_mean"].shift(1)
-
-    # Align candles to UTC hourly grid
-    candles["hour"] = candles["time_utc"].dt.floor("1h")
-
-    candles = candles.merge(
-        sent_hourly,
-        on="hour",
-        how="left"
-    )
-
-    candles["sentiment_mean"] = candles["sentiment_mean"].fillna(0.0)
-
-    if candles["sentiment_mean"].abs().sum() == 0:
-        raise RuntimeError("Sentiment merge failed: all zeros")
-
-    # -------- Indicators --------
     for c in ["open", "high", "low", "close", "volume"]:
-        candles[c] = candles[c].astype(float)
+        df[c] = df[c].astype(float)
 
-    candles["atr"] = ta.volatility.AverageTrueRange(
-        candles["high"], candles["low"], candles["close"], 14
+    # -------- INDICATORS (PARITY) --------
+    df["atr"] = ta.volatility.AverageTrueRange(
+        df["high"], df["low"], df["close"], 14
     ).average_true_range()
 
-    candles["adx"] = ta.trend.ADXIndicator(
-        candles["high"], candles["low"], candles["close"], 14
+    df["adx"] = ta.trend.ADXIndicator(
+        df["high"], df["low"], df["close"], 14
     ).adx()
 
-    candles["avg_close"] = candles["close"].rolling(AVG_WINDOW, 1).mean()
-    candles["avg_vwma"] = compute_avg_vwma(candles["close"], candles["volume"], AVG_WINDOW)
+    df["avg_close"] = df["close"].rolling(AVG_WINDOW, 1).mean()
+    df["avg_vwma"] = compute_avg_vwma(df["close"], df["volume"], AVG_WINDOW)
 
-    candles["vwma_signal"] = 0
-    candles.loc[candles["avg_close"] > candles["avg_vwma"], "vwma_signal"] = 1
-    candles.loc[candles["avg_close"] < candles["avg_vwma"], "vwma_signal"] = -1
+    df["vwma_signal"] = 0
+    df.loc[df["avg_close"] > df["avg_vwma"], "vwma_signal"] = 1
+    df.loc[df["avg_close"] < df["avg_vwma"], "vwma_signal"] = -1
 
-    candles["rvi"] = rvi_approx(
-        candles["close"], candles["open"],
-        candles["high"], candles["low"], RVI_PERIOD
-    )
-    mean_rvi = candles["rvi"].mean()
-    candles["rvi_signal"] = candles["rvi"].apply(lambda x: 1 if x > mean_rvi else -1)
+    df["rvi"] = rvi_approx(df["close"], df["open"], df["high"], df["low"], RVI_PERIOD)
+    mean_rvi = df["rvi"].mean()
+    df["rvi_signal"] = df["rvi"].apply(lambda x: 1 if x > mean_rvi else -1)
 
-    candles["vp_node"] = compute_vp_node(candles["close"], VP_WINDOW)
+    df["vp_node"] = compute_vp_node(df["close"], VP_WINDOW)
 
-    # -------- Backtest Loop --------
+    # -------- BACKTEST LOOP --------
     equity = START_EQUITY
     trades = []
     equity_curve, times = [], []
+    trades_today = {}
     signal_rows = []
 
-    for i, r in candles.iterrows():
-        ts, ts_ist = r["time_utc"], r["time_ist"]
-        hour = ts_ist.hour
-
-        # -------- SESSION FILTER --------
-        if SESSION_END_IST == 0:
-            in_session = hour >= SESSION_START_IST
-        elif SESSION_START_IST < SESSION_END_IST:
-            in_session = SESSION_START_IST <= hour < SESSION_END_IST
-        else:
-            in_session = hour >= SESSION_START_IST or hour < SESSION_END_IST
-
+    for i, r in df.iterrows():
+        ts, ts_ist = r["time"], r["time_ist"]
         close, high, low = r["close"], r["high"], r["low"]
+        atr, adx = r["atr"], r["adx"]
+        vw, rv, vp = r["vwma_signal"], r["rvi_signal"], r["vp_node"]
+
+        signal_rows.append({
+            "time": ts,
+            "close": close,
+            "atr": atr,
+            "adx": adx,
+            "vwma_signal": vw,
+            "rvi_signal": rv,
+            "vp_node": vp
+        })
 
         # -------- EXIT (INTRABAR-AWARE) --------
         if trades and trades[-1]["status"] == "open":
@@ -170,7 +129,7 @@ def run_pseudotest():
                     hit = ("tp", t["tp"])
 
             if hit:
-                _, px = hit
+                result, px = hit
                 pnl = ((px - t["entry"]) if t["side"] == "buy"
                        else (t["entry"] - px)) * t["size"]
                 fees = ROUND_TRIP_FEE * px * t["size"]
@@ -180,53 +139,42 @@ def run_pseudotest():
                     "exit_time": ts,
                     "pnl": pnl - fees,
                     "equity": equity,
-                    "status": "closed"
+                    "status": result
                 })
 
         if trades and trades[-1]["status"] == "open":
-            equity_curve.append(equity)
-            times.append(ts)
-            continue
+            equity_curve.append(equity); times.append(ts); continue
 
-        if not in_session:
-            equity_curve.append(equity)
-            times.append(ts)
-            continue
+        # -------- SESSION FILTER (PARITY) --------
+        start = ts_ist.replace(hour=SESSION_START_IST, minute=0, second=0)
+        end = ts_ist.replace(hour=23, minute=59, second=59) if SESSION_END_IST == 0 \
+              else ts_ist.replace(hour=SESSION_END_IST, minute=0, second=0)
 
-        atr, adx = r["atr"], r["adx"]
-        vw, rv, vp = r["vwma_signal"], r["rvi_signal"], r["vp_node"]
-        sent = r["sentiment_mean"]
-
-        signal_rows.append({
-            "time": ts,
-            "close": close,
-            "vwma": vw,
-            "rvi": rv,
-            "sentiment": sent
-        })
+        if not (start <= ts_ist <= end):
+            equity_curve.append(equity); times.append(ts); continue
 
         if i < 30 or adx <= ADX_THRESH or atr / close < ATR_PCT_MIN:
-            equity_curve.append(equity)
-            times.append(ts)
-            continue
-
-        if vw == 1 and sent <= 0:
-            continue
-        if vw == -1 and sent >= 0:
-            continue
+            equity_curve.append(equity); times.append(ts); continue
 
         vp_ok = (close > vp) if vw == 1 else (close < vp)
         if vw != 0 and ((rv == vw) or vp_ok):
+
+            day = ts_ist.date()
+            if trades_today.get(day, 0) >= 3:
+                equity_curve.append(equity); times.append(ts); continue
+
             risk = equity * RISK_FRACTION
             size = int(risk / (ATR_MULT_SL * atr))
             if size < 1:
-                continue
+                equity_curve.append(equity); times.append(ts); continue
+
             if (size * close) / LEVERAGE > equity:
-                continue
+                equity_curve.append(equity); times.append(ts); continue
 
             side = "buy" if vw == 1 else "sell"
             trades.append({
                 "time": ts,
+                "time_ist": ts_ist,
                 "side": side,
                 "entry": close,
                 "tp": close + ATR_MULT_TP * atr if side == "buy" else close - ATR_MULT_TP * atr,
@@ -234,22 +182,25 @@ def run_pseudotest():
                 "size": size,
                 "status": "open"
             })
+            trades_today[day] = trades_today.get(day, 0) + 1
 
-        equity_curve.append(equity)
-        times.append(ts)
+        equity_curve.append(equity); times.append(ts)
 
-    pd.DataFrame(trades).to_csv(OUTPUT_CSV, index=False)
     pd.DataFrame(signal_rows).to_csv(SIGNALS_CSV, index=False)
 
-    plt.figure(figsize=(10, 5))
+    with open(OUTPUT_CSV, "w", newline="") as f:
+        w = csv.DictWriter(f, trades[0].keys())
+        w.writeheader()
+        w.writerows(trades)
+
+    plt.figure(figsize=(10,5))
     plt.plot(times, equity_curve)
     plt.grid(True)
     plt.savefig(EQUITY_CURVE_IMG)
 
-    print("Trades:", len(trades))
+    print(f"Closed trades: {len([t for t in trades if t['status'] in ('tp','sl')])}")
     print(f"Final equity: {equity:.2f}")
-    print(f"Return %: {((equity / START_EQUITY) - 1) * 100:.2f}")
 
-# ----------------- Entry Point -----------------
+# ----------------- ENTRY -----------------
 if __name__ == "__main__":
     run_pseudotest()

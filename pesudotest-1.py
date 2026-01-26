@@ -8,7 +8,7 @@ import ta
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-# ----------------- PATH RESOLUTION (CRITICAL FIX) -----------------
+# ----------------- PATH RESOLUTION -----------------
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 def require_file(relative_path: str) -> Path:
@@ -39,11 +39,10 @@ RISK_FRACTION = 0.03
 ATR_PCT_MIN = 0.005
 
 SESSION_START_IST = 10
-SESSION_END_IST = 0
+SESSION_END_IST = 0   # 0 = midnight cutoff, not "whole day"
 
 SENTIMENT_WINDOW = 5
 
-# Time bounds (STRICT)
 SENTIMENT_START = pd.Timestamp("2025-12-28 06:36:46.525457+00:00")
 SENTIMENT_END   = pd.Timestamp("2026-01-25 23:46:30.606611+00:00")
 
@@ -67,47 +66,40 @@ def rvi_approx(c, o, h, l, p):
 
 # ----------------- Core Logic -----------------
 def run_pseudotest():
-    # -------- Load Data (READ ONLY) --------
+
     candles = pd.read_csv(CANDLES_CSV, parse_dates=["time_utc"])
     sentiment = pd.read_csv(SENTIMENT_CSV, parse_dates=["run_time_utc"])
 
-    candles = candles[
-        (candles["time_utc"] >= CANDLE_START) &
-        (candles["time_utc"] <= CANDLE_END)
-    ].copy()
+    candles = candles[(candles["time_utc"] >= CANDLE_START) &
+                      (candles["time_utc"] <= CANDLE_END)].copy()
 
-    sentiment = sentiment[
-        (sentiment["run_time_utc"] >= SENTIMENT_START) &
-        (sentiment["run_time_utc"] <= SENTIMENT_END)
-    ].copy()
+    sentiment = sentiment[(sentiment["run_time_utc"] >= SENTIMENT_START) &
+                          (sentiment["run_time_utc"] <= SENTIMENT_END)].copy()
 
     candles["time_ist"] = candles["time_utc"].dt.tz_convert("Asia/Kolkata")
 
-    # -------- FIXED: Align sentiment to hourly candles --------
+    # -------- SENTIMENT ALIGNMENT (FIXED) --------
     candles["hour"] = candles["time_utc"].dt.floor("1h")
     sentiment["hour"] = sentiment["run_time_utc"].dt.floor("1h")
 
     sent_agg = (
         sentiment
-        .groupby("hour")["sentiment_score"]
+        .groupby("hour", as_index=False)["sentiment_score"]
         .mean()
-        .rolling(SENTIMENT_WINDOW, min_periods=1)
-        .mean()
-        .reset_index()
-        .rename(columns={"sentiment_score": "sentiment_mean"})
+        .assign(
+            sentiment_mean=lambda x:
+            x["sentiment_score"]
+            .rolling(SENTIMENT_WINDOW, min_periods=1)
+            .mean()
+        )
+        .drop(columns="sentiment_score")
     )
 
-    candles = candles.merge(
-        sent_agg,
-        on="hour",
-        how="left"
-    )
+    candles = candles.merge(sent_agg, on="hour", how="left")
+    candles["sentiment_mean"] = candles["sentiment_mean"].fillna(0.0)
 
-    candles["sentiment_mean"].fillna(0, inplace=True)
-
-    # -------- HARD SAFETY CHECK --------
-    assert candles["sentiment_mean"].abs().sum() > 0, \
-        "Sentiment merge failed: sentiment_mean is all zeros"
+    if candles["sentiment_mean"].abs().sum() == 0:
+        raise RuntimeError("Sentiment merge failed: all sentiment values are zero")
 
     # -------- Indicators --------
     for c in ["open", "high", "low", "close", "volume"]:
@@ -145,6 +137,21 @@ def run_pseudotest():
 
     for i, r in candles.iterrows():
         ts, ts_ist = r["time_utc"], r["time_ist"]
+        hour = ts_ist.hour
+
+        # -------- SESSION FILTER (FIXED) --------
+        if SESSION_END_IST == 0:
+            in_session = hour >= SESSION_START_IST
+        elif SESSION_START_IST < SESSION_END_IST:
+            in_session = SESSION_START_IST <= hour < SESSION_END_IST
+        else:
+            in_session = hour >= SESSION_START_IST or hour < SESSION_END_IST
+
+        if not in_session:
+            equity_curve.append(equity)
+            times.append(ts)
+            continue
+
         close, atr, adx = r["close"], r["atr"], r["adx"]
         vw, rv, vp = r["vwma_signal"], r["rvi_signal"], r["vp_node"]
         sent = r["sentiment_mean"]
@@ -157,43 +164,11 @@ def run_pseudotest():
             "sentiment": sent
         })
 
-        # EXIT
-        if trades and trades[-1]["status"] == "open":
-            t = trades[-1]
-            hit = None
-            if t["side"] == "buy":
-                if close >= t["tp"]: hit = ("tp", t["tp"])
-                elif close <= t["sl"]: hit = ("sl", t["sl"])
-            else:
-                if close <= t["tp"]: hit = ("tp", t["tp"])
-                elif close >= t["sl"]: hit = ("sl", t["sl"])
-
-            if hit:
-                _, px = hit
-                pnl = ((px - t["entry"]) if t["side"] == "buy" else (t["entry"] - px)) * t["size"]
-                fees = ROUND_TRIP_FEE * px * t["size"]
-                equity += pnl - fees
-                t.update({"exit": px, "pnl": pnl - fees, "equity": equity, "status": "closed"})
-
-        if trades and trades[-1]["status"] == "open":
-            equity_curve.append(equity)
-            times.append(ts)
-            continue
-
-        # SESSION FILTER
-        start = ts_ist.replace(hour=SESSION_START_IST, minute=0, second=0)
-        end = ts_ist.replace(hour=23, minute=59, second=59)
-        if not (start <= ts_ist <= end):
-            equity_curve.append(equity)
-            times.append(ts)
-            continue
-
         if i < 30 or adx <= ADX_THRESH or atr / close < ATR_PCT_MIN:
             equity_curve.append(equity)
             times.append(ts)
             continue
 
-        # SENTIMENT FILTER (supporting, never leading)
         if vw == 1 and sent <= 0:
             continue
         if vw == -1 and sent >= 0:
@@ -222,7 +197,6 @@ def run_pseudotest():
         equity_curve.append(equity)
         times.append(ts)
 
-    # -------- Outputs --------
     pd.DataFrame(trades).to_csv(OUTPUT_CSV, index=False)
     pd.DataFrame(signal_rows).to_csv(SIGNALS_CSV, index=False)
 

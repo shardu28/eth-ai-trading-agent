@@ -1,8 +1,6 @@
 # pesudotest-1.py
 # Pseudo backtest: Candles + Sentiment (read-only)
 
-import csv
-from datetime import datetime
 import pandas as pd
 import ta
 import matplotlib.pyplot as plt
@@ -22,8 +20,8 @@ CANDLES_CSV = require_file("candles-data/candles.csv")
 SENTIMENT_CSV = require_file("sentiment-data/sentiment.csv")
 
 OUTPUT_CSV = "pesudotest_results.csv"
-EQUITY_CURVE_IMG = "pesudotest_equity_curve.png"
 SIGNALS_CSV = "pesudotest_signals.csv"
+EQUITY_CURVE_IMG = "pesudotest_equity_curve.png"
 
 START_EQUITY = 100.0
 LEVERAGE = 20.0
@@ -39,7 +37,7 @@ RISK_FRACTION = 0.03
 ATR_PCT_MIN = 0.005
 
 SESSION_START_IST = 10
-SESSION_END_IST = 0   # 0 = midnight cutoff, not "whole day"
+SESSION_END_IST = 0   # midnight cutoff
 
 SENTIMENT_WINDOW = 5
 
@@ -78,28 +76,28 @@ def run_pseudotest():
 
     candles["time_ist"] = candles["time_utc"].dt.tz_convert("Asia/Kolkata")
 
-    # -------- SENTIMENT ALIGNMENT (FIXED) --------
-    candles["hour"] = candles["time_utc"].dt.floor("1h")
-    sentiment["hour"] = sentiment["run_time_utc"].dt.floor("1h")
+    # -------- SENTIMENT ALIGNMENT (CORRECT, AS-OF) --------
+    candles = candles.sort_values("time_utc")
+    sentiment = sentiment.sort_values("run_time_utc")
 
-    sent_agg = (
-        sentiment
-        .groupby("hour", as_index=False)["sentiment_score"]
+    sentiment["sentiment_mean"] = (
+        sentiment["sentiment_score"]
+        .rolling(SENTIMENT_WINDOW, min_periods=1)
         .mean()
-        .assign(
-            sentiment_mean=lambda x:
-            x["sentiment_score"]
-            .rolling(SENTIMENT_WINDOW, min_periods=1)
-            .mean()
-        )
-        .drop(columns="sentiment_score")
     )
 
-    candles = candles.merge(sent_agg, on="hour", how="left")
+    candles = pd.merge_asof(
+        candles,
+        sentiment[["run_time_utc", "sentiment_mean"]],
+        left_on="time_utc",
+        right_on="run_time_utc",
+        direction="backward"
+    )
+
     candles["sentiment_mean"] = candles["sentiment_mean"].fillna(0.0)
 
     if candles["sentiment_mean"].abs().sum() == 0:
-        raise RuntimeError("Sentiment merge failed: all sentiment values are zero")
+        raise RuntimeError("Sentiment merge failed: all zeros")
 
     # -------- Indicators --------
     for c in ["open", "high", "low", "close", "volume"]:
@@ -139,7 +137,7 @@ def run_pseudotest():
         ts, ts_ist = r["time_utc"], r["time_ist"]
         hour = ts_ist.hour
 
-        # -------- SESSION FILTER (FIXED) --------
+        # -------- SESSION FILTER --------
         if SESSION_END_IST == 0:
             in_session = hour >= SESSION_START_IST
         elif SESSION_START_IST < SESSION_END_IST:
@@ -147,12 +145,49 @@ def run_pseudotest():
         else:
             in_session = hour >= SESSION_START_IST or hour < SESSION_END_IST
 
+        close, high, low = r["close"], r["high"], r["low"]
+
+        # -------- EXIT (INTRABAR-AWARE) --------
+        if trades and trades[-1]["status"] == "open":
+            t = trades[-1]
+            hit = None
+
+            if t["side"] == "buy":
+                if low <= t["sl"]:
+                    hit = ("sl", t["sl"])
+                elif high >= t["tp"]:
+                    hit = ("tp", t["tp"])
+            else:
+                if high >= t["sl"]:
+                    hit = ("sl", t["sl"])
+                elif low <= t["tp"]:
+                    hit = ("tp", t["tp"])
+
+            if hit:
+                _, px = hit
+                pnl = ((px - t["entry"]) if t["side"] == "buy"
+                       else (t["entry"] - px)) * t["size"]
+                fees = ROUND_TRIP_FEE * px * t["size"]
+                equity += pnl - fees
+                t.update({
+                    "exit": px,
+                    "exit_time": ts,
+                    "pnl": pnl - fees,
+                    "equity": equity,
+                    "status": "closed"
+                })
+
+        if trades and trades[-1]["status"] == "open":
+            equity_curve.append(equity)
+            times.append(ts)
+            continue
+
         if not in_session:
             equity_curve.append(equity)
             times.append(ts)
             continue
 
-        close, atr, adx = r["close"], r["atr"], r["adx"]
+        atr, adx = r["atr"], r["adx"]
         vw, rv, vp = r["vwma_signal"], r["rvi_signal"], r["vp_node"]
         sent = r["sentiment_mean"]
 
@@ -210,8 +245,5 @@ def run_pseudotest():
     print(f"Return %: {((equity / START_EQUITY) - 1) * 100:.2f}")
 
 # ----------------- Entry Point -----------------
-def main():
-    run_pseudotest()
-
 if __name__ == "__main__":
-    main()
+    run_pseudotest()

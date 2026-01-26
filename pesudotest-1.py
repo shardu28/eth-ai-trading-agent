@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 # ----------------- PATH RESOLUTION (CRITICAL FIX) -----------------
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 def require_file(relative_path: str) -> Path:
     path = REPO_ROOT / relative_path

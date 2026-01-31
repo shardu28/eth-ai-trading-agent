@@ -1,0 +1,37 @@
+# Delta Exchange API Configuration
+# Demo Account Configuration
+
+api:
+  base_url: "https://cdn-ind.testnet.deltaex.org"  # Demo/Testnet URL
+  websocket_url: "wss://socket-ind.testnet.deltaex.org"
+  
+  # These will be filled after you create demo account
+  api_key: ""  # Your demo API key here
+  api_secret: ""  # Your demo API secret here
+  
+  # API limits
+  rate_limit_quota: 10000  # per 5 minutes
+  product_rate_limit: 500  # operations per second per product
+  signature_ttl: 5  # seconds - hard limit
+
+trading:
+  product_symbol: "SOLUSD"  # SOL perpetual futures
+  product_id: null  # Will be fetched dynamically
+  
+  # Risk parameters (demo testing)
+  test_order_size: 1  # Minimum contract size for testing
+  max_test_orders: 5  # Safety limit for demo
+
+logging:
+  level: "DEBUG"  # DEBUG, INFO, WARNING, ERROR
+  file: "api_test.log"
+  
+timeouts:
+  connect: 3
+  read: 27
+  
+# File paths (relative to project root)
+paths:
+  tradebook: "tradebook.csv"
+  candles: "candles-data/candles.csv"
+  sentiment: "sentiment-data/sentiment.csv"

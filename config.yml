@@ -11,7 +11,7 @@
 # Uncomment and fill the api_key and api_secret below
 
 api:
-  base_url: "https://api.testnet.deltaex.org"  # Demo/Testnet URL
+  base_url: "https://testnet-api.deltaex.org"  # Demo/Testnet URL
   websocket_url: "wss://testnet.delta.exchange/ws"
   
   # GitHub Secrets (injected at runtime via environment variables)

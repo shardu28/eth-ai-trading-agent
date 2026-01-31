@@ -22,9 +22,9 @@ jobs:
         python-version: '3.11'
     
     - name: Install dependencies
-      run: |
+      run: |    
         python -m pip install --upgrade pip
-        pip install requests pyyaml
+        pip install -r requirements.txt
     
     - name: Sync system clock (critical for signature)
       run: |

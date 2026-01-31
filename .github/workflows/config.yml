@@ -6,8 +6,8 @@ api:
   websocket_url: "wss://socket-ind.testnet.deltaex.org"
   
   # These will be filled after you create demo account
-  api_key: ""  # Your demo API key here
-  api_secret: ""  # Your demo API secret here
+  api_key: "sbAQnChMEzQgEncvAYOlvnOT5ENKlK"  # Your demo API key here
+  api_secret: "WqSM5WS4VGtTngkOdgIDCPclewMtkCPbDoGTwZx9oBliPsujPNe77jyg6J3X"  # Your demo API secret here
   
   # API limits
   rate_limit_quota: 10000  # per 5 minutes

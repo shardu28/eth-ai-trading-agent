@@ -1,12 +1,13 @@
-requests==2.31.0      # HTTP requests for REST API
-PyYAML==6.0.1         # YAML config file parsing
+requests      # HTTP requests for REST API
+PyYAML         # YAML config file parsing
 matplotlib
 python-dateutil
 pandas
 ta
 numpy
 # Optional but recommended for production
-urllib3==2.1.0        # Better connection pooling (requests dependency)
-certifi==2024.2.2     # SSL certificate verification
-charset-normalizer==3.3.2  # Character encoding detection
-idna==3.6             # Internationalized domain names
+urllib3        # Better connection pooling (requests dependency)
+certifi     # SSL certificate verification
+charset-normalizer  # Character encoding detection
+idna             # Internationalized domain names
+

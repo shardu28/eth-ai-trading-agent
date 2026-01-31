@@ -12,7 +12,7 @@
 
 api:
   base_url: "https://cdn-ind.testnet.deltaex.org"  # Demo/Testnet URL
-  websocket_url: "wss://socket-ind.testnet.deltaex.org"
+  websocket_url: "wss://testnet.delta.exchange/ws"
   
   # GitHub Secrets (injected at runtime via environment variables)
   # Leave empty - values come from: $DELTA_API_KEY and $DELTA_API_SECRET

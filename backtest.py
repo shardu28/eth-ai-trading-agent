@@ -19,17 +19,17 @@ BACKTEST_SIGNALS_CSV = "backtest_signals.csv"
 
 # ----------------- Fixed Backtest Params -----------------
 DAYS = 365
-START_EQUITY = 100.0
+START_EQUITY = 200.0
 LEVERAGE = 20.0
 ROUND_TRIP_FEE = 0.001
 
 ATR_MULT_SL = 1.3
-ATR_MULT_TP = 3.7
-ADX_THRESH = 45
+ATR_MULT_TP = 2.5
+ADX_THRESH = 50
 AVG_WINDOW = 7
-VP_WINDOW = 50
+VP_WINDOW = 70
 RVI_PERIOD = 10
-RISK_FRACTION = 0.05
+RISK_FRACTION = 0.03
 
 # 🔹 Session filter (IST, hour-based)
 SESSION_START_IST = 10      # 10:00 IST
